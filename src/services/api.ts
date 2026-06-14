@@ -293,7 +293,10 @@ export const api = {
   },
 
   // ---------- REPORTS ----------
-  async getReports(groupId: string, _period?: string) {
+  async getReports(groupId: string, _period?: string): Promise<{
+    byCategory: Record<string, number>;
+    monthly: { month: string; contributions: number; expenses: number }[];
+  }> {
     if (USE_MOCK) {
       const txs = mockTransactions;
       const byCat: Record<string, number> = {};
