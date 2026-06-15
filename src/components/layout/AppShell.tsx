@@ -84,7 +84,7 @@ function BottomNav({ pathname }: { pathname: string; unread: number }) {
       <div className="relative">
         <Link
           to="/add"
-          className="absolute -top-6 left-1/2 grid h-14 w-14 -translate-x-1/2 place-items-center rounded-full bg-primary text-primary-foreground shadow-[var(--shadow-pop)] ring-4 ring-background"
+          className="absolute -top-10 left-1/2 z-50 grid h-14 w-14 -translate-x-1/2 place-items-center rounded-full bg-primary text-primary-foreground shadow-[var(--shadow-pop)] ring-4 ring-background"
           aria-label="Add"
         >
           <Plus className="h-7 w-7" />
