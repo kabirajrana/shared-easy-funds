@@ -350,6 +350,7 @@ export const api = {
   async markNotificationsRead(): Promise<void> {
     if (USE_MOCK) {
       mockNotifications = mockNotifications.map((n) => ({ ...n, read: true }));
+      persistNotifs();
       return delay(undefined);
     }
     await http(`/api/notifications/read`, { method: "POST" });
