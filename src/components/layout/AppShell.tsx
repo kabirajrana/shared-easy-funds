@@ -1,5 +1,5 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
-import { Bell, Home, ListChecks, BarChart3, Users, Plus, ArrowLeft, Pencil, Upload } from "lucide-react";
+import { Bell, Home, ListChecks, BarChart3, Users, Plus, ArrowLeft, Upload } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState, type ReactNode } from "react";
 import { api } from "@/services/api";
