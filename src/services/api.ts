@@ -248,6 +248,19 @@ export const api = {
         receipt_url: input.receipt_url,
       };
       mockTransactions.unshift(tx);
+      persistTxs();
+      if (tx.status === "pending") {
+        const u = mockUsers.find((x) => x.id === currentUserId);
+        mockNotifications.unshift({
+          id: `n${Date.now()}`,
+          type: "request",
+          title: "New spend request",
+          body: `${u?.name.split(" ")[0] ?? "Member"} requested NPR ${tx.amount.toLocaleString("en-IN")} for ${tx.category}`,
+          date: iso(new Date()),
+          read: false,
+        });
+        persistNotifs();
+      }
       return delay(tx);
     }
     return http(`/api/groups/${groupId}/transactions`, {
