@@ -272,7 +272,7 @@ export const api = {
   async approveTransaction(id: string): Promise<void> {
     if (USE_MOCK) {
       const t = mockTransactions.find((x) => x.id === id);
-      if (t) t.status = "approved";
+      if (t) { t.status = "approved"; persistTxs(); }
       return delay(undefined);
     }
     await http(`/api/transactions/${id}/approve`, { method: "POST" });
