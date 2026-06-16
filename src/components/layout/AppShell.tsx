@@ -1,5 +1,5 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
-import { Bell, Home, ListChecks, BarChart3, Users, Plus, ArrowLeft, Pencil, Upload } from "lucide-react";
+import { Bell, Home, ListChecks, BarChart3, Users, Plus, ArrowLeft, Upload } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState, type ReactNode } from "react";
 import { api } from "@/services/api";
@@ -94,7 +94,6 @@ export function AppShell({
           className="flex min-w-0 flex-1 items-center gap-1 text-left disabled:cursor-default"
         >
           <h1 className="truncate text-base font-semibold">{title ?? "Sajha"}</h1>
-          {canEdit && <Pencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
         </button>
         {rightSlot}
         <Link
