@@ -67,13 +67,7 @@ const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? "";
 const USE_MOCK = !BASE_URL;
 
 // ---------- MOCK DATA ----------
-const today = new Date();
 const iso = (d: Date) => d.toISOString();
-const daysAgo = (n: number) => {
-  const d = new Date(today);
-  d.setDate(d.getDate() - n);
-  return iso(d);
-};
 
 const mockUsers: User[] = [
   { id: "u1", name: "Ram Sharma", email: "ram@sajha.app" },
@@ -89,47 +83,43 @@ const mockGroup: Group = {
   name: "Flat 4B – Baluwatar",
   invite_code: "SAJHA-4B23",
   leader_id: "u1",
-  monthly_target: 40000,
-  qr_label: "eSewa – Ram Sharma",
-  qr_image_url:
-    "https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=esewa%3A%2F%2Fpay%3Fmerchant%3Dram%40esewa",
+  monthly_target: 0,
 };
 
 const mockMemberships: Membership[] = [
-  { user_id: "u1", group_id: "g1", role: "leader", joined_at: daysAgo(120) },
-  { user_id: "u2", group_id: "g1", role: "member", joined_at: daysAgo(110) },
-  { user_id: "u3", group_id: "g1", role: "member", joined_at: daysAgo(90) },
-  { user_id: "u4", group_id: "g1", role: "member", joined_at: daysAgo(40) },
+  { user_id: "u1", group_id: "g1", role: "leader", joined_at: iso(new Date()) },
+  { user_id: "u2", group_id: "g1", role: "member", joined_at: iso(new Date()) },
+  { user_id: "u3", group_id: "g1", role: "member", joined_at: iso(new Date()) },
+  { user_id: "u4", group_id: "g1", role: "member", joined_at: iso(new Date()) },
 ];
 
-let mockTransactions: Transaction[] = [
-  { id: "t1", group_id: "g1", type: "contribution", category: "Contribution", amount: 10000, description: "eSewa transfer", date: daysAgo(1), created_by: "u2", status: "verified" },
-  { id: "t2", group_id: "g1", type: "expense", category: "Groceries", amount: 2450, description: "Bhatbhateni weekly run", date: daysAgo(1), created_by: "u1", status: "approved" },
-  { id: "t3", group_id: "g1", type: "expense", category: "Vegetables", amount: 680, description: "Kalimati morning market", date: daysAgo(2), created_by: "u3", status: "pending" },
-  { id: "t4", group_id: "g1", type: "expense", category: "Electricity", amount: 3200, description: "NEA bill – Mangsir", date: daysAgo(3), created_by: "u1", status: "approved" },
-  { id: "t5", group_id: "g1", type: "contribution", category: "Contribution", amount: 10000, description: "Bank transfer", date: daysAgo(4), created_by: "u3", status: "verified" },
-  { id: "t6", group_id: "g1", type: "expense", category: "Internet", amount: 1500, description: "Worldlink monthly", date: daysAgo(5), created_by: "u1", status: "approved" },
-  { id: "t7", group_id: "g1", type: "expense", category: "Water/Gas", amount: 1800, description: "LPG cylinder refill", date: daysAgo(6), created_by: "u2", status: "pending" },
-  { id: "t8", group_id: "g1", type: "contribution", category: "Contribution", amount: 8000, description: "Cash to Ram", date: daysAgo(8), created_by: "u4", status: "unverified" },
-  { id: "t9", group_id: "g1", type: "expense", category: "Rent", amount: 22000, description: "Mangsir rent", date: daysAgo(10), created_by: "u1", status: "approved" },
-  { id: "t10", group_id: "g1", type: "expense", category: "Transport", amount: 420, description: "Pathao – grocery run", date: daysAgo(11), created_by: "u4", status: "rejected" },
-  { id: "t11", group_id: "g1", type: "contribution", category: "Contribution", amount: 10000, description: "Khalti", date: daysAgo(15), created_by: "u1", status: "verified" },
-  { id: "t12", group_id: "g1", type: "expense", category: "Groceries", amount: 1850, description: "Bigmart", date: daysAgo(18), created_by: "u2", status: "approved" },
-  { id: "t13", group_id: "g1", type: "expense", category: "Other", amount: 500, description: "Cleaning supplies", date: daysAgo(22), created_by: "u3", status: "approved" },
-  { id: "t14", group_id: "g1", type: "expense", category: "Vegetables", amount: 720, description: "Weekly veggies", date: daysAgo(35), created_by: "u3", status: "approved" },
-  { id: "t15", group_id: "g1", type: "contribution", category: "Contribution", amount: 9000, description: "eSewa", date: daysAgo(40), created_by: "u2", status: "verified" },
-  { id: "t16", group_id: "g1", type: "expense", category: "Rent", amount: 22000, description: "Kartik rent", date: daysAgo(42), created_by: "u1", status: "approved" },
-];
+// ---- Persistence (localStorage) ----
+const LS_TXS = "sajha.transactions";
+const LS_NOTIFS = "sajha.notifications";
 
-let mockNotifications: Notification[] = [
-  { id: "n1", type: "request", title: "New spend request", body: "Hari requested NPR 680 for Vegetables", date: daysAgo(0), read: false },
-  { id: "n2", type: "request", title: "New spend request", body: "Sita requested NPR 1,800 for Water/Gas", date: daysAgo(0), read: false },
-  { id: "n3", type: "low_balance", title: "Fund running low", body: "Balance below 20% of monthly target", date: daysAgo(2), read: true },
-  { id: "n4", type: "approval", title: "Request approved", body: "Your NPR 1,200 grocery request was approved", date: daysAgo(5), read: true },
-  { id: "n5", type: "summary", title: "Monthly summary ready", body: "Mangsir spending report is available", date: daysAgo(7), read: true },
-];
+function loadJSON<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function saveJSON<T>(key: string, val: T) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(key, JSON.stringify(val));
+  } catch {}
+}
 
-const delay = <T,>(data: T, ms = 200) =>
+let mockTransactions: Transaction[] = loadJSON<Transaction[]>(LS_TXS, []);
+let mockNotifications: Notification[] = loadJSON<Notification[]>(LS_NOTIFS, []);
+
+const persistTxs = () => saveJSON(LS_TXS, mockTransactions);
+const persistNotifs = () => saveJSON(LS_NOTIFS, mockNotifications);
+
+const delay = <T,>(data: T, ms = 100) =>
   new Promise<T>((r) => setTimeout(() => r(data), ms));
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
