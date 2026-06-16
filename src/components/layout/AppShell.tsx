@@ -81,23 +81,22 @@ function BottomNav({ pathname }: { pathname: string; unread: number }) {
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md">
-      <div className="relative">
-        <Link
-          to="/add"
-          className="absolute -top-10 left-1/2 z-50 grid h-14 w-14 -translate-x-1/2 place-items-center rounded-full bg-primary text-primary-foreground shadow-[var(--shadow-pop)] ring-4 ring-background"
-          aria-label="Add"
-        >
-          <Plus className="h-7 w-7" />
-        </Link>
-        <div className="grid grid-cols-5 border-t border-border/60 bg-background/95 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur">
-          {items.slice(0, 2).map((it) => (
-            <NavItem key={it.to} {...it} active={isActive(pathname, it.to)} />
-          ))}
-          <div />
-          {items.slice(2).map((it) => (
-            <NavItem key={it.to} {...it} active={isActive(pathname, it.to)} />
-          ))}
+      <div className="grid grid-cols-5 items-end border-t border-border/60 bg-background/95 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur">
+        {items.slice(0, 2).map((it) => (
+          <NavItem key={it.to} {...it} active={isActive(pathname, it.to)} />
+        ))}
+        <div className="flex justify-center">
+          <Link
+            to="/add"
+            className="grid h-12 w-12 -translate-y-3 place-items-center rounded-full bg-primary text-primary-foreground shadow-[var(--shadow-pop)] ring-4 ring-background"
+            aria-label="Add"
+          >
+            <Plus className="h-6 w-6" />
+          </Link>
         </div>
+        {items.slice(2).map((it) => (
+          <NavItem key={it.to} {...it} active={isActive(pathname, it.to)} />
+        ))}
       </div>
     </nav>
   );
