@@ -17,6 +17,7 @@ export interface Group {
   monthly_target: number;
   qr_image_url?: string;
   qr_label?: string;
+  avatar_url?: string;
 }
 
 export interface Membership {
