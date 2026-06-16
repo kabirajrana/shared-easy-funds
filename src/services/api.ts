@@ -281,7 +281,7 @@ export const api = {
   async rejectTransaction(id: string, _reason?: string): Promise<void> {
     if (USE_MOCK) {
       const t = mockTransactions.find((x) => x.id === id);
-      if (t) t.status = "rejected";
+      if (t) { t.status = "rejected"; persistTxs(); }
       return delay(undefined);
     }
     await http(`/api/transactions/${id}/reject`, { method: "POST", body: JSON.stringify({ reason: _reason }) });
@@ -290,7 +290,7 @@ export const api = {
   async verifyContribution(id: string): Promise<void> {
     if (USE_MOCK) {
       const t = mockTransactions.find((x) => x.id === id);
-      if (t) t.status = "verified";
+      if (t) { t.status = "verified"; persistTxs(); }
       return delay(undefined);
     }
     await http(`/api/transactions/${id}/verify`, { method: "POST" });
