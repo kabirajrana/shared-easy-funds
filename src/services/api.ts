@@ -1,6 +1,6 @@
 // Sajha API service layer.
-// All data operations go through here. Functions return typed promises.
-// When the backend is ready, set VITE_API_BASE_URL and flip USE_MOCK=false.
+// Mock backend persists users, groups, memberships, transactions, notifications
+// to localStorage so the app behaves like a real multi-user app.
 
 export interface User {
   id: string;
@@ -18,6 +18,7 @@ export interface Group {
   qr_image_url?: string;
   qr_label?: string;
   avatar_url?: string;
+  solo?: boolean;
 }
 
 export interface Membership {
@@ -66,38 +67,15 @@ export interface MemberWithUser {
 const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? "";
 const USE_MOCK = !BASE_URL;
 
-// ---------- MOCK DATA ----------
-const iso = (d: Date) => d.toISOString();
-
-const mockUsers: User[] = [
-  { id: "u1", name: "Ram Sharma", email: "ram@sajha.app" },
-  { id: "u2", name: "Sita Thapa", email: "sita@sajha.app" },
-  { id: "u3", name: "Hari Gurung", email: "hari@sajha.app" },
-  { id: "u4", name: "Mina Rai", email: "mina@sajha.app" },
-];
-
-let currentUserId = "u1"; // Ram = leader by default
-
-const mockGroup: Group = {
-  id: "g1",
-  name: "Flat 4B – Baluwatar",
-  invite_code: "SAJHA-4B23",
-  leader_id: "u1",
-  monthly_target: 0,
-};
-
-const mockMemberships: Membership[] = [
-  { user_id: "u1", group_id: "g1", role: "leader", joined_at: iso(new Date()) },
-  { user_id: "u2", group_id: "g1", role: "member", joined_at: iso(new Date()) },
-  { user_id: "u3", group_id: "g1", role: "member", joined_at: iso(new Date()) },
-  { user_id: "u4", group_id: "g1", role: "member", joined_at: iso(new Date()) },
-];
-
-// ---- Persistence (localStorage) ----
+// ---------- Persistence ----------
+const LS_USERS = "sajha.users";
+const LS_GROUPS = "sajha.groups";
+const LS_MEMBERS = "sajha.memberships";
 const LS_TXS = "sajha.transactions";
 const LS_NOTIFS = "sajha.notifications";
+const LS_CURRENT_USER = "sajha.currentUserId";
 
-function loadJSON<T>(key: string, fallback: T): T {
+function load<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
     const raw = localStorage.getItem(key);
@@ -106,21 +84,37 @@ function loadJSON<T>(key: string, fallback: T): T {
     return fallback;
   }
 }
-function saveJSON<T>(key: string, val: T) {
+function save<T>(key: string, val: T) {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(key, JSON.stringify(val));
   } catch {}
 }
 
-let mockTransactions: Transaction[] = loadJSON<Transaction[]>(LS_TXS, []);
-let mockNotifications: Notification[] = loadJSON<Notification[]>(LS_NOTIFS, []);
+let users: User[] = load<User[]>(LS_USERS, []);
+let groups: Group[] = load<Group[]>(LS_GROUPS, []);
+let memberships: Membership[] = load<Membership[]>(LS_MEMBERS, []);
+let transactions: Transaction[] = load<Transaction[]>(LS_TXS, []);
+let notifications: Notification[] = load<Notification[]>(LS_NOTIFS, []);
+let currentUserId: string =
+  (typeof window !== "undefined" && localStorage.getItem(LS_CURRENT_USER)) || "";
 
-const persistTxs = () => saveJSON(LS_TXS, mockTransactions);
-const persistNotifs = () => saveJSON(LS_NOTIFS, mockNotifications);
+const persistUsers = () => save(LS_USERS, users);
+const persistGroups = () => save(LS_GROUPS, groups);
+const persistMembers = () => save(LS_MEMBERS, memberships);
+const persistTxs = () => save(LS_TXS, transactions);
+const persistNotifs = () => save(LS_NOTIFS, notifications);
 
-const delay = <T,>(data: T, ms = 100) =>
+const iso = (d: Date) => d.toISOString();
+const delay = <T,>(data: T, ms = 120) =>
   new Promise<T>((r) => setTimeout(() => r(data), ms));
+
+function genInvite(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return `SAJHA-${s}`;
+}
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -131,19 +125,21 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// ---------- AUTH ----------
 export const api = {
   setCurrentUser(id: string) {
     currentUserId = id;
+    if (typeof window !== "undefined") localStorage.setItem(LS_CURRENT_USER, id);
   },
   getCurrentUserId() {
     return currentUserId;
   },
 
+  // ---------- AUTH ----------
   async login(email: string, _password: string): Promise<User> {
     if (USE_MOCK) {
-      const u = mockUsers.find((x) => x.email === email) ?? mockUsers[0];
-      currentUserId = u.id;
+      const u = users.find((x) => x.email.toLowerCase() === email.toLowerCase());
+      if (!u) throw new Error("No account found for that email. Please register first.");
+      api.setCurrentUser(u.id);
       return delay(u);
     }
     return http("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password: _password }) });
@@ -151,28 +147,113 @@ export const api = {
 
   async register(name: string, email: string, _password: string): Promise<User> {
     if (USE_MOCK) {
-      const u: User = { id: `u${Date.now()}`, name, email };
-      mockUsers.push(u);
-      currentUserId = u.id;
+      if (users.some((x) => x.email.toLowerCase() === email.toLowerCase())) {
+        throw new Error("An account with this email already exists.");
+      }
+      const u: User = { id: `u${Date.now()}`, name: name.trim(), email: email.trim() };
+      users.push(u);
+      persistUsers();
+      api.setCurrentUser(u.id);
       return delay(u);
     }
     return http("/api/auth/register", { method: "POST", body: JSON.stringify({ name, email, password: _password }) });
   },
 
   // ---------- GROUPS ----------
-  async createGroup(name: string, monthly_target: number): Promise<Group> {
-    if (USE_MOCK) return delay({ ...mockGroup, name, monthly_target });
-    return http("/api/groups", { method: "POST", body: JSON.stringify({ name, monthly_target }) });
+  async createGroup(
+    name: string,
+    monthly_target: number,
+    opts?: { solo?: boolean; memberEmails?: string[] }
+  ): Promise<Group> {
+    if (USE_MOCK) {
+      if (!currentUserId) throw new Error("Please sign in first.");
+      const g: Group = {
+        id: `g${Date.now()}`,
+        name: name.trim() || "My group",
+        invite_code: genInvite(),
+        leader_id: currentUserId,
+        monthly_target,
+        solo: !!opts?.solo,
+      };
+      groups.push(g);
+      memberships.push({
+        user_id: currentUserId,
+        group_id: g.id,
+        role: "leader",
+        joined_at: iso(new Date()),
+      });
+      // Add any pre-invited members (must already be registered)
+      if (!opts?.solo && opts?.memberEmails?.length) {
+        for (const email of opts.memberEmails) {
+          const u = users.find((x) => x.email.toLowerCase() === email.toLowerCase());
+          if (u && u.id !== currentUserId) {
+            memberships.push({
+              user_id: u.id,
+              group_id: g.id,
+              role: "member",
+              joined_at: iso(new Date()),
+            });
+          }
+        }
+      }
+      persistGroups();
+      persistMembers();
+      return delay(g);
+    }
+    return http("/api/groups", { method: "POST", body: JSON.stringify({ name, monthly_target, ...opts }) });
   },
 
   async joinGroup(invite_code: string): Promise<Group> {
-    if (USE_MOCK) return delay({ ...mockGroup, invite_code });
+    if (USE_MOCK) {
+      if (!currentUserId) throw new Error("Please sign in first.");
+      const g = groups.find(
+        (x) => x.invite_code.toUpperCase() === invite_code.trim().toUpperCase()
+      );
+      if (!g) throw new Error("Invalid invite code. Ask the leader to share it again.");
+      if (g.solo) throw new Error("This is a solo fund and does not accept members.");
+      const already = memberships.some(
+        (m) => m.group_id === g.id && m.user_id === currentUserId
+      );
+      if (!already) {
+        memberships.push({
+          user_id: currentUserId,
+          group_id: g.id,
+          role: "member",
+          joined_at: iso(new Date()),
+        });
+        persistMembers();
+      }
+      return delay(g);
+    }
     return http("/api/groups/join", { method: "POST", body: JSON.stringify({ invite_code }) });
   },
 
   async getGroup(id: string): Promise<Group> {
-    if (USE_MOCK) return delay(mockGroup);
+    if (USE_MOCK) {
+      const g = groups.find((x) => x.id === id);
+      if (!g) throw new Error("Group not found");
+      return delay(g);
+    }
     return http(`/api/groups/${id}`);
+  },
+
+  async updateGroup(id: string, patch: Partial<Group>): Promise<Group> {
+    if (USE_MOCK) {
+      const g = groups.find((x) => x.id === id);
+      if (!g) throw new Error("Group not found");
+      Object.assign(g, patch);
+      persistGroups();
+      return delay({ ...g });
+    }
+    return http(`/api/groups/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+  },
+
+  async myGroups(): Promise<Group[]> {
+    if (USE_MOCK) {
+      const ids = memberships.filter((m) => m.user_id === currentUserId).map((m) => m.group_id);
+      return delay(groups.filter((g) => ids.includes(g.id)));
+    }
+    return http(`/api/groups/mine`);
   },
 
   // ---------- MEMBERS ----------
@@ -180,28 +261,52 @@ export const api = {
     if (USE_MOCK) {
       const month = new Date().getMonth();
       const year = new Date().getFullYear();
-      const out = mockMemberships.map((m) => {
-        const user = mockUsers.find((u) => u.id === m.user_id)!;
-        const txs = mockTransactions.filter(
-          (t) => t.created_by === m.user_id && t.type === "contribution"
-        );
-        const monthSum = txs
-          .filter((t) => new Date(t.date).getMonth() === month && new Date(t.date).getFullYear() === year)
-          .reduce((s, t) => s + t.amount, 0);
-        const yearSum = txs
-          .filter((t) => new Date(t.date).getFullYear() === year)
-          .reduce((s, t) => s + t.amount, 0);
-        return { membership: m, user, contributed_this_month: monthSum, contributed_this_year: yearSum };
-      });
+      const out = memberships
+        .filter((m) => m.group_id === groupId)
+        .map((m) => {
+          const user = users.find((u) => u.id === m.user_id);
+          if (!user) return null;
+          const txs = transactions.filter(
+            (t) => t.group_id === groupId && t.created_by === m.user_id && t.type === "contribution"
+          );
+          const monthSum = txs
+            .filter((t) => new Date(t.date).getMonth() === month && new Date(t.date).getFullYear() === year)
+            .reduce((s, t) => s + t.amount, 0);
+          const yearSum = txs
+            .filter((t) => new Date(t.date).getFullYear() === year)
+            .reduce((s, t) => s + t.amount, 0);
+          return { membership: m, user, contributed_this_month: monthSum, contributed_this_year: yearSum };
+        })
+        .filter(Boolean) as MemberWithUser[];
       return delay(out);
     }
     return http(`/api/groups/${groupId}/members`);
   },
 
+  async addMemberByEmail(groupId: string, email: string): Promise<MemberWithUser> {
+    if (USE_MOCK) {
+      const u = users.find((x) => x.email.toLowerCase() === email.toLowerCase());
+      if (!u) throw new Error("No registered user with that email. Ask them to sign up first.");
+      if (memberships.some((m) => m.group_id === groupId && m.user_id === u.id)) {
+        throw new Error("That user is already in the group.");
+      }
+      const m: Membership = { user_id: u.id, group_id: groupId, role: "member", joined_at: iso(new Date()) };
+      memberships.push(m);
+      persistMembers();
+      return delay({ membership: m, user: u, contributed_this_month: 0, contributed_this_year: 0 });
+    }
+    return http(`/api/groups/${groupId}/members`, { method: "POST", body: JSON.stringify({ email }) });
+  },
+
   async transferLeader(groupId: string, userId: string): Promise<void> {
     if (USE_MOCK) {
-      mockMemberships.forEach((m) => (m.role = m.user_id === userId ? "leader" : "member"));
-      mockGroup.leader_id = userId;
+      memberships.forEach((m) => {
+        if (m.group_id === groupId) m.role = m.user_id === userId ? "leader" : "member";
+      });
+      const g = groups.find((x) => x.id === groupId);
+      if (g) g.leader_id = userId;
+      persistMembers();
+      persistGroups();
       return delay(undefined);
     }
     await http(`/api/groups/${groupId}/members/${userId}/transfer-leader`, { method: "POST" });
@@ -209,8 +314,9 @@ export const api = {
 
   async removeMember(groupId: string, userId: string): Promise<void> {
     if (USE_MOCK) {
-      const i = mockMemberships.findIndex((m) => m.user_id === userId);
-      if (i >= 0) mockMemberships.splice(i, 1);
+      const i = memberships.findIndex((m) => m.group_id === groupId && m.user_id === userId);
+      if (i >= 0) memberships.splice(i, 1);
+      persistMembers();
       return delay(undefined);
     }
     await http(`/api/groups/${groupId}/members/${userId}`, { method: "DELETE" });
@@ -218,7 +324,12 @@ export const api = {
 
   // ---------- TRANSACTIONS ----------
   async getTransactions(groupId: string): Promise<Transaction[]> {
-    if (USE_MOCK) return delay([...mockTransactions].sort((a, b) => +new Date(b.date) - +new Date(a.date)));
+    if (USE_MOCK)
+      return delay(
+        transactions
+          .filter((t) => t.group_id === groupId)
+          .sort((a, b) => +new Date(b.date) - +new Date(a.date))
+      );
     return http(`/api/groups/${groupId}/transactions`);
   },
 
@@ -229,10 +340,12 @@ export const api = {
     }
   ): Promise<Transaction> {
     if (USE_MOCK) {
+      const g = groups.find((x) => x.id === groupId);
+      const isSolo = !!g?.solo;
       const status: TxStatus =
         input.type === "contribution"
-          ? "unverified"
-          : input.asLeader
+          ? "verified"
+          : isSolo || input.asLeader
           ? "approved"
           : "pending";
       const tx: Transaction = {
@@ -247,11 +360,11 @@ export const api = {
         date: input.date,
         receipt_url: input.receipt_url,
       };
-      mockTransactions.unshift(tx);
+      transactions.unshift(tx);
       persistTxs();
       if (tx.status === "pending") {
-        const u = mockUsers.find((x) => x.id === currentUserId);
-        mockNotifications.unshift({
+        const u = users.find((x) => x.id === currentUserId);
+        notifications.unshift({
           id: `n${Date.now()}`,
           type: "request",
           title: "New spend request",
@@ -271,7 +384,7 @@ export const api = {
 
   async approveTransaction(id: string): Promise<void> {
     if (USE_MOCK) {
-      const t = mockTransactions.find((x) => x.id === id);
+      const t = transactions.find((x) => x.id === id);
       if (t) { t.status = "approved"; persistTxs(); }
       return delay(undefined);
     }
@@ -280,7 +393,7 @@ export const api = {
 
   async rejectTransaction(id: string, _reason?: string): Promise<void> {
     if (USE_MOCK) {
-      const t = mockTransactions.find((x) => x.id === id);
+      const t = transactions.find((x) => x.id === id);
       if (t) { t.status = "rejected"; persistTxs(); }
       return delay(undefined);
     }
@@ -289,7 +402,7 @@ export const api = {
 
   async verifyContribution(id: string): Promise<void> {
     if (USE_MOCK) {
-      const t = mockTransactions.find((x) => x.id === id);
+      const t = transactions.find((x) => x.id === id);
       if (t) { t.status = "verified"; persistTxs(); }
       return delay(undefined);
     }
@@ -302,7 +415,7 @@ export const api = {
     monthly: { month: string; contributions: number; expenses: number }[];
   }> {
     if (USE_MOCK) {
-      const txs = mockTransactions;
+      const txs = transactions.filter((t) => t.group_id === groupId);
       const byCat: Record<string, number> = {};
       txs.filter((t) => t.type === "expense" && t.status === "approved").forEach((t) => {
         byCat[t.category] = (byCat[t.category] ?? 0) + t.amount;
@@ -329,27 +442,33 @@ export const api = {
   // ---------- QR ----------
   async uploadQr(groupId: string, image_url: string, label: string): Promise<Group> {
     if (USE_MOCK) {
-      mockGroup.qr_image_url = image_url;
-      mockGroup.qr_label = label;
-      return delay({ ...mockGroup });
+      const g = groups.find((x) => x.id === groupId);
+      if (!g) throw new Error("Group not found");
+      g.qr_image_url = image_url;
+      g.qr_label = label;
+      persistGroups();
+      return delay({ ...g });
     }
     return http(`/api/groups/${groupId}/qr`, { method: "POST", body: JSON.stringify({ image_url, label }) });
   },
 
   async getQr(groupId: string): Promise<{ qr_image_url?: string; qr_label?: string }> {
-    if (USE_MOCK) return delay({ qr_image_url: mockGroup.qr_image_url, qr_label: mockGroup.qr_label });
+    if (USE_MOCK) {
+      const g = groups.find((x) => x.id === groupId);
+      return delay({ qr_image_url: g?.qr_image_url, qr_label: g?.qr_label });
+    }
     return http(`/api/groups/${groupId}/qr`);
   },
 
   // ---------- NOTIFICATIONS ----------
   async getNotifications(): Promise<Notification[]> {
-    if (USE_MOCK) return delay([...mockNotifications]);
+    if (USE_MOCK) return delay([...notifications]);
     return http(`/api/notifications`);
   },
 
   async markNotificationsRead(): Promise<void> {
     if (USE_MOCK) {
-      mockNotifications = mockNotifications.map((n) => ({ ...n, read: true }));
+      notifications = notifications.map((n) => ({ ...n, read: true }));
       persistNotifs();
       return delay(undefined);
     }
@@ -358,10 +477,10 @@ export const api = {
 
   // helpers
   getUserById(id: string): User | undefined {
-    return mockUsers.find((u) => u.id === id);
+    return users.find((u) => u.id === id);
   },
   allUsers(): User[] {
-    return mockUsers;
+    return users;
   },
 };
 

@@ -14,9 +14,9 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const [name, setName] = useState("Ram Sharma");
-  const [email, setEmail] = useState("ram@sajha.app");
-  const [password, setPassword] = useState("password");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const { user, setUser, setGroup } = useSession();
   const navigate = useNavigate();
@@ -31,11 +31,16 @@ function AuthPage() {
     try {
       const u = mode === "login" ? await api.login(email, password) : await api.register(name, email, password);
       setUser(u);
-      // auto-load demo group for mock environment
-      const g = await api.getGroup("g1");
-      setGroup(g);
-      toast.success(`Welcome, ${u.name.split(" ")[0]}!`);
-      navigate({ to: "/" });
+      const mine = await api.myGroups();
+      if (mine.length > 0) {
+        setGroup(mine[0]);
+        toast.success(`Welcome back, ${u.name.split(" ")[0]}!`);
+        navigate({ to: "/" });
+      } else {
+        setGroup(null);
+        toast.success(`Welcome, ${u.name.split(" ")[0]}!`);
+        navigate({ to: "/onboarding" });
+      }
     } catch (err: any) {
       toast.error(err?.message ?? "Failed");
     } finally {
@@ -92,7 +97,7 @@ function AuthPage() {
       </form>
 
       <p className="mt-6 text-center text-xs text-muted-foreground">
-        Demo accounts: ram@sajha.app (leader), sita@sajha.app, hari@sajha.app
+        {mode === "login" ? "New here? Switch to Sign up to create your account." : "Pick a name, your email, and a password to begin."}
       </p>
     </div>
   );
