@@ -5,7 +5,8 @@ import { AuthGate } from "@/components/layout/AuthGate";
 import { api } from "@/services/api";
 import { formatNPR, useSession } from "@/lib/session";
 import { Button } from "@/components/ui/button";
-import { Copy, Crown, QrCode, Trash2, UserCog } from "lucide-react";
+import { Copy, Crown, QrCode, Share2, Trash2, UserCog, UserPlus } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -29,10 +30,37 @@ function GroupPage() {
 
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [confirmTransfer, setConfirmTransfer] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [adding, setAdding] = useState(false);
 
   const copyInvite = () => {
     navigator.clipboard.writeText(group!.invite_code);
     toast.success("Invite code copied");
+  };
+
+  const shareInvite = async () => {
+    const text = `Join my Sajha group "${group!.name}" with invite code: ${group!.invite_code}`;
+    if ((navigator as any).share) {
+      try { await (navigator as any).share({ title: "Sajha invite", text }); } catch {}
+    } else {
+      navigator.clipboard.writeText(text);
+      toast.success("Invite text copied");
+    }
+  };
+
+  const addMember = async () => {
+    if (!inviteEmail.trim()) return;
+    setAdding(true);
+    try {
+      await api.addMemberByEmail(group!.id, inviteEmail.trim());
+      qc.invalidateQueries({ queryKey: ["members"] });
+      toast.success("Member added");
+      setInviteEmail("");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not add member");
+    } finally {
+      setAdding(false);
+    }
   };
 
   const doTransfer = async () => {
@@ -56,13 +84,29 @@ function GroupPage() {
     <AppShell title={group?.name ?? "Group"}>
       <div className="px-4 pt-4">
         <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-[var(--shadow-card)]">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">Invite code</p>
-              <p className="truncate font-mono text-lg font-bold tracking-wider">{group?.invite_code}</p>
-            </div>
+          <p className="text-xs text-muted-foreground">Invite code — share with members to join</p>
+          <p className="mt-1 truncate font-mono text-xl font-bold tracking-wider">{group?.invite_code}</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
             <Button variant="outline" size="sm" onClick={copyInvite}><Copy className="mr-1 h-4 w-4" /> Copy</Button>
+            <Button size="sm" onClick={shareInvite}><Share2 className="mr-1 h-4 w-4" /> Share</Button>
           </div>
+          {role === "leader" && !group?.solo && (
+            <div className="mt-3 border-t border-border/60 pt-3">
+              <p className="mb-1.5 text-xs text-muted-foreground">Add a registered member by email</p>
+              <div className="flex gap-2">
+                <Input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addMember())}
+                  placeholder="friend@example.com"
+                />
+                <Button size="sm" onClick={addMember} disabled={adding || !inviteEmail.trim()}>
+                  <UserPlus className="mr-1 h-4 w-4" /> Add
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         <Link to="/qr" className="mt-3 flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-4 shadow-[var(--shadow-card)]">
