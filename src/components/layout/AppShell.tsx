@@ -110,6 +110,7 @@ export function AppShell({
           )}
         </Link>
       </header>
+      </div>
 
       <main className={cn("flex-1", !hideNav && "pb-24")}>{children}</main>
 
