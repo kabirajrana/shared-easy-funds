@@ -65,7 +65,8 @@ export function AppShell({
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col bg-background">
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border/60 bg-background/85 px-4 backdrop-blur">
+      <div className="sticky top-0 z-30 bg-background/85 backdrop-blur" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      <header className="flex h-14 items-center gap-2 border-b border-border/60 px-4">
         {back ? (
           <button
             onClick={() => navigate({ to: ".." as any })}
