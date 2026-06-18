@@ -97,7 +97,7 @@ function AuthPage() {
       </form>
 
       <p className="mt-6 text-center text-xs text-muted-foreground">
-        Demo accounts: ram@sajha.app (leader), sita@sajha.app, hari@sajha.app
+        {mode === "login" ? "New here? Switch to Sign up to create your account." : "Pick a name, your email, and a password to begin."}
       </p>
     </div>
   );
