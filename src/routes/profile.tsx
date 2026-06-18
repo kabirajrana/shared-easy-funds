@@ -1,11 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGate } from "@/components/layout/AuthGate";
 import { useSession } from "@/lib/session";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { LogOut, Moon, Users } from "lucide-react";
+import { LogOut, Moon, Users, Plus, KeyRound, Check, Crown } from "lucide-react";
 import { api } from "@/services/api";
 import { toast } from "sonner";
 
@@ -15,13 +16,19 @@ export const Route = createFileRoute("/profile")({
 });
 
 function Profile() {
-  const { user, group, logout, setUser } = useSession();
+  const { user, group, logout, setGroup } = useSession();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [dark, setDark] = useState(false);
 
+  const { data: myGroups = [] } = useQuery({
+    queryKey: ["myGroups", user?.id],
+    queryFn: () => api.myGroups(),
+    enabled: !!user,
+  });
+
   useEffect(() => {
-    const initial = document.documentElement.classList.contains("dark");
-    setDark(initial);
+    setDark(document.documentElement.classList.contains("dark"));
   }, []);
 
   const toggleDark = (v: boolean) => {
@@ -34,16 +41,18 @@ function Profile() {
     navigate({ to: "/auth" });
   };
 
-  // Demo: switch persona to see leader vs member views
-  const switchPersona = async (email: string) => {
-    const u = await api.login(email, "x");
-    setUser(u);
-    toast.success(`Switched to ${u.name}`);
+  const switchGroup = (gid: string) => {
+    const g = myGroups.find((x) => x.id === gid);
+    if (!g) return;
+    setGroup(g);
+    qc.invalidateQueries();
+    toast.success(`Switched to ${g.name}`);
+    navigate({ to: "/" });
   };
 
   return (
     <AppShell title="Profile" back hideNav>
-      <div className="px-4 pt-6">
+      <div className="px-4 pt-6 pb-8">
         <div className="flex items-center gap-4 rounded-2xl border border-border/60 bg-card p-4 shadow-[var(--shadow-card)]">
           <div className="grid h-14 w-14 place-items-center rounded-full bg-primary/10 text-lg font-bold text-primary">
             {user?.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
@@ -62,30 +71,51 @@ function Profile() {
             </div>
             <Switch checked={dark} onCheckedChange={toggleDark} />
           </div>
-          <div className="border-t border-border/60 p-4">
-            <div className="flex items-center gap-3">
-              <Users className="h-5 w-5 text-muted-foreground" />
-              <div className="flex-1">
-                <p className="text-sm font-medium">Current group</p>
-                <p className="text-xs text-muted-foreground">{group?.name}</p>
-              </div>
-            </div>
-          </div>
         </section>
 
         <section className="mt-6">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Demo: switch persona</p>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { email: "ram@sajha.app", label: "Ram (Leader)" },
-              { email: "sita@sajha.app", label: "Sita (Member)" },
-              { email: "hari@sajha.app", label: "Hari (Member)" },
-              { email: "mina@sajha.app", label: "Mina (Member)" },
-            ].map((p) => (
-              <Button key={p.email} variant="outline" size="sm" onClick={() => switchPersona(p.email)}>
-                {p.label}
-              </Button>
-            ))}
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">My groups</p>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="space-y-2">
+            {myGroups.length === 0 && (
+              <p className="rounded-xl bg-muted/60 p-3 text-xs text-muted-foreground">
+                You haven't joined any group yet.
+              </p>
+            )}
+            {myGroups.map((g) => {
+              const isCurrent = g.id === group?.id;
+              const isLeader = g.leader_id === user?.id;
+              return (
+                <button
+                  key={g.id}
+                  onClick={() => switchGroup(g.id)}
+                  className="flex w-full items-center gap-3 rounded-2xl border border-border/60 bg-card p-3 text-left shadow-[var(--shadow-card)]"
+                >
+                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
+                    <Users className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="truncate text-sm font-semibold">{g.name}</p>
+                      {isLeader && <Crown className="h-3.5 w-3.5 text-primary" />}
+                    </div>
+                    <p className="truncate font-mono text-[11px] text-muted-foreground">{g.invite_code}</p>
+                  </div>
+                  {isCurrent && <Check className="h-5 w-5 text-primary" />}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Button variant="outline" onClick={() => navigate({ to: "/onboarding" })}>
+              <Plus className="mr-1 h-4 w-4" /> New group
+            </Button>
+            <Button variant="outline" onClick={() => navigate({ to: "/onboarding" })}>
+              <KeyRound className="mr-1 h-4 w-4" /> Join code
+            </Button>
           </div>
         </section>
 
