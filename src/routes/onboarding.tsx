@@ -6,17 +6,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { User as UserIcon, Users, KeyRound, X } from "lucide-react";
 
 export const Route = createFileRoute("/onboarding")({
   component: Onboarding,
 });
 
+type Mode = "solo" | "create" | "join";
+
 function Onboarding() {
   const { user, setGroup } = useSession();
-  const [tab, setTab] = useState<"create" | "join">("create");
+  const [mode, setMode] = useState<Mode>("create");
   const [name, setName] = useState("");
   const [target, setTarget] = useState(40000);
   const [code, setCode] = useState("");
+  const [emailDraft, setEmailDraft] = useState("");
+  const [emails, setEmails] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
 
   if (!user) {
@@ -24,40 +30,104 @@ function Onboarding() {
     return null;
   }
 
-  const onCreate = async () => {
-    const g = await api.createGroup(name || "New group", target);
-    setGroup(g);
-    toast.success("Group created");
-    navigate({ to: "/" });
+  const addEmail = () => {
+    const e = emailDraft.trim().toLowerCase();
+    if (!e) return;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) {
+      toast.error("Enter a valid email");
+      return;
+    }
+    if (e === user.email.toLowerCase()) {
+      toast.error("That's your own email");
+      return;
+    }
+    if (emails.includes(e)) return;
+    setEmails([...emails, e]);
+    setEmailDraft("");
   };
-  const onJoin = async () => {
-    const g = await api.joinGroup(code || "SAJHA-4B23");
-    setGroup(g);
-    toast.success("Joined group");
-    navigate({ to: "/" });
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      if (mode === "solo") {
+        const g = await api.createGroup(name || "My fund", target, { solo: true });
+        setGroup(g);
+        toast.success("Solo fund created");
+        navigate({ to: "/" });
+      } else if (mode === "create") {
+        const g = await api.createGroup(name || "New group", target, { memberEmails: emails });
+        setGroup(g);
+        const missing = emails.filter((e) => !api.allUsers().some((u) => u.email.toLowerCase() === e));
+        if (missing.length) {
+          toast.message("Group created", {
+            description: `${missing.length} email(s) aren't registered yet. Share your invite code so they can join.`,
+          });
+        } else {
+          toast.success("Group created");
+        }
+        navigate({ to: "/" });
+      } else {
+        const g = await api.joinGroup(code);
+        setGroup(g);
+        toast.success(`Joined ${g.name}`);
+        navigate({ to: "/" });
+      }
+    } catch (err: any) {
+      toast.error(err?.message ?? "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const tabs: { id: Mode; label: string; icon: any }[] = [
+    { id: "solo", label: "Solo", icon: UserIcon },
+    { id: "create", label: "Create", icon: Users },
+    { id: "join", label: "Join", icon: KeyRound },
+  ];
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-md flex-col px-6 pt-12">
+    <div className="mx-auto flex min-h-dvh max-w-md flex-col px-6 pt-12" style={{ paddingTop: "calc(3rem + env(safe-area-inset-top))" }}>
       <h1 className="text-2xl font-bold">Get started</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Create a new shared fund or join one with an invite code.</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Track a fund on your own, create one for your group, or join with an invite code.
+      </p>
 
-      <div className="mt-6 flex rounded-full bg-muted p-1">
-        {(["create", "join"] as const).map((m) => (
+      <div className="mt-6 grid grid-cols-3 gap-1 rounded-full bg-muted p-1">
+        {tabs.map((t) => (
           <button
-            key={m}
-            onClick={() => setTab(m)}
+            key={t.id}
+            onClick={() => setMode(t.id)}
             className={
-              "flex-1 rounded-full px-4 py-2 text-sm font-semibold transition " +
-              (tab === m ? "bg-card text-foreground shadow-sm" : "text-muted-foreground")
+              "flex items-center justify-center gap-1.5 rounded-full px-2 py-2 text-sm font-semibold transition " +
+              (mode === t.id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground")
             }
           >
-            {m === "create" ? "Create group" : "Join group"}
+            <t.icon className="h-4 w-4" />
+            {t.label}
           </button>
         ))}
       </div>
 
-      {tab === "create" ? (
+      {mode === "solo" && (
+        <div className="mt-6 space-y-4">
+          <p className="rounded-xl bg-muted/60 p-3 text-xs text-muted-foreground">
+            Just for you — track your own monthly fund, expenses and contributions. No group, no approvals.
+          </p>
+          <div className="space-y-1.5">
+            <Label>Fund name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My monthly fund" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Monthly target (NPR)</Label>
+            <Input type="number" value={target} onChange={(e) => setTarget(+e.target.value)} />
+          </div>
+          <Button className="h-12 w-full" onClick={submit} disabled={busy}>
+            {busy ? "Creating…" : "Create solo fund"}
+          </Button>
+        </div>
+      )}
+
+      {mode === "create" && (
         <div className="mt-6 space-y-4">
           <div className="space-y-1.5">
             <Label>Group name</Label>
@@ -67,15 +137,57 @@ function Onboarding() {
             <Label>Monthly target (NPR)</Label>
             <Input type="number" value={target} onChange={(e) => setTarget(+e.target.value)} />
           </div>
-          <Button className="h-12 w-full" onClick={onCreate}>Create group</Button>
+          <div className="space-y-1.5">
+            <Label>Invite members by email (optional)</Label>
+            <div className="flex gap-2">
+              <Input
+                value={emailDraft}
+                onChange={(e) => setEmailDraft(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addEmail())}
+                placeholder="friend@example.com"
+                type="email"
+              />
+              <Button type="button" variant="outline" onClick={addEmail}>Add</Button>
+            </div>
+            {emails.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {emails.map((e) => (
+                  <span key={e} className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs">
+                    {e}
+                    <button onClick={() => setEmails(emails.filter((x) => x !== e))} aria-label="Remove">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              Members must be registered in Sajha. Anyone you can't add now can still join later with your invite code.
+            </p>
+          </div>
+          <Button className="h-12 w-full" onClick={submit} disabled={busy}>
+            {busy ? "Creating…" : "Create group"}
+          </Button>
         </div>
-      ) : (
+      )}
+
+      {mode === "join" && (
         <div className="mt-6 space-y-4">
+          <p className="rounded-xl bg-muted/60 p-3 text-xs text-muted-foreground">
+            Ask the group leader for their invite code. It looks like <span className="font-mono font-bold">SAJHA-XXXX</span>.
+          </p>
           <div className="space-y-1.5">
             <Label>Invite code</Label>
-            <Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="SAJHA-XXXX" />
+            <Input
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="SAJHA-XXXX"
+              className="font-mono tracking-wider"
+            />
           </div>
-          <Button className="h-12 w-full" onClick={onJoin}>Join group</Button>
+          <Button className="h-12 w-full" onClick={submit} disabled={busy || !code.trim()}>
+            {busy ? "Joining…" : "Join group"}
+          </Button>
         </div>
       )}
     </div>
