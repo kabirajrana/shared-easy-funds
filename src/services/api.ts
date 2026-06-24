@@ -7,6 +7,7 @@ export interface User {
   name: string;
   email: string;
   avatar_url?: string;
+  password_hash?: string;
 }
 
 export interface Group {
