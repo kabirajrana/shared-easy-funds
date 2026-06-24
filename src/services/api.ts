@@ -117,6 +117,17 @@ function genInvite(): string {
   return `SAJHA-${s}`;
 }
 
+async function hashPassword(pw: string): Promise<string> {
+  if (typeof crypto !== "undefined" && crypto.subtle) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`sajha:${pw}`));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  // Fallback (very old browsers): non-cryptographic, but keeps the flow working.
+  let h = 0;
+  for (let i = 0; i < pw.length; i++) h = (h * 31 + pw.charCodeAt(i)) | 0;
+  return `f${h}`;
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { "Content-Type": "application/json" },
