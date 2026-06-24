@@ -136,28 +136,47 @@ export const api = {
   },
 
   // ---------- AUTH ----------
-  async login(email: string, _password: string): Promise<User> {
+  async login(email: string, password: string): Promise<User> {
     if (USE_MOCK) {
-      const u = users.find((x) => x.email.toLowerCase() === email.toLowerCase());
-      if (!u) throw new Error("No account found for that email. Please register first.");
+      const e = email.trim().toLowerCase();
+      const u = users.find((x) => x.email.toLowerCase() === e);
+      if (!u) throw new Error("No account found for that email. Please sign up first.");
+      const hash = await hashPassword(password);
+      if (u.password_hash && u.password_hash !== hash) {
+        throw new Error("Incorrect password. Please try again.");
+      }
+      // Backfill hash for any legacy account created before passwords were enforced.
+      if (!u.password_hash) {
+        u.password_hash = hash;
+        persistUsers();
+      }
       api.setCurrentUser(u.id);
-      return delay(u);
+      return delay({ ...u, password_hash: undefined });
     }
-    return http("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password: _password }) });
+    return http("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
   },
 
-  async register(name: string, email: string, _password: string): Promise<User> {
+  async register(name: string, email: string, password: string): Promise<User> {
     if (USE_MOCK) {
-      if (users.some((x) => x.email.toLowerCase() === email.toLowerCase())) {
-        throw new Error("An account with this email already exists.");
+      const e = email.trim().toLowerCase();
+      if (!name.trim()) throw new Error("Please enter your full name.");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error("Please enter a valid email.");
+      if (password.length < 6) throw new Error("Password must be at least 6 characters.");
+      if (users.some((x) => x.email.toLowerCase() === e)) {
+        throw new Error("An account with this email already exists. Try logging in.");
       }
-      const u: User = { id: `u${Date.now()}`, name: name.trim(), email: email.trim() };
+      const u: User = {
+        id: `u${Date.now()}`,
+        name: name.trim(),
+        email: e,
+        password_hash: await hashPassword(password),
+      };
       users.push(u);
       persistUsers();
       api.setCurrentUser(u.id);
-      return delay(u);
+      return delay({ ...u, password_hash: undefined });
     }
-    return http("/api/auth/register", { method: "POST", body: JSON.stringify({ name, email, password: _password }) });
+    return http("/api/auth/register", { method: "POST", body: JSON.stringify({ name, email, password }) });
   },
 
   // ---------- GROUPS ----------
