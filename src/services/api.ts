@@ -7,6 +7,7 @@ export interface User {
   name: string;
   email: string;
   avatar_url?: string;
+  password_hash?: string;
 }
 
 export interface Group {
@@ -116,6 +117,17 @@ function genInvite(): string {
   return `SAJHA-${s}`;
 }
 
+async function hashPassword(pw: string): Promise<string> {
+  if (typeof crypto !== "undefined" && crypto.subtle) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`sajha:${pw}`));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  // Fallback (very old browsers): non-cryptographic, but keeps the flow working.
+  let h = 0;
+  for (let i = 0; i < pw.length; i++) h = (h * 31 + pw.charCodeAt(i)) | 0;
+  return `f${h}`;
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -135,28 +147,47 @@ export const api = {
   },
 
   // ---------- AUTH ----------
-  async login(email: string, _password: string): Promise<User> {
+  async login(email: string, password: string): Promise<User> {
     if (USE_MOCK) {
-      const u = users.find((x) => x.email.toLowerCase() === email.toLowerCase());
-      if (!u) throw new Error("No account found for that email. Please register first.");
+      const e = email.trim().toLowerCase();
+      const u = users.find((x) => x.email.toLowerCase() === e);
+      if (!u) throw new Error("No account found for that email. Please sign up first.");
+      const hash = await hashPassword(password);
+      if (u.password_hash && u.password_hash !== hash) {
+        throw new Error("Incorrect password. Please try again.");
+      }
+      // Backfill hash for any legacy account created before passwords were enforced.
+      if (!u.password_hash) {
+        u.password_hash = hash;
+        persistUsers();
+      }
       api.setCurrentUser(u.id);
-      return delay(u);
+      return delay({ ...u, password_hash: undefined });
     }
-    return http("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password: _password }) });
+    return http("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
   },
 
-  async register(name: string, email: string, _password: string): Promise<User> {
+  async register(name: string, email: string, password: string): Promise<User> {
     if (USE_MOCK) {
-      if (users.some((x) => x.email.toLowerCase() === email.toLowerCase())) {
-        throw new Error("An account with this email already exists.");
+      const e = email.trim().toLowerCase();
+      if (!name.trim()) throw new Error("Please enter your full name.");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error("Please enter a valid email.");
+      if (password.length < 6) throw new Error("Password must be at least 6 characters.");
+      if (users.some((x) => x.email.toLowerCase() === e)) {
+        throw new Error("An account with this email already exists. Try logging in.");
       }
-      const u: User = { id: `u${Date.now()}`, name: name.trim(), email: email.trim() };
+      const u: User = {
+        id: `u${Date.now()}`,
+        name: name.trim(),
+        email: e,
+        password_hash: await hashPassword(password),
+      };
       users.push(u);
       persistUsers();
       api.setCurrentUser(u.id);
-      return delay(u);
+      return delay({ ...u, password_hash: undefined });
     }
-    return http("/api/auth/register", { method: "POST", body: JSON.stringify({ name, email, password: _password }) });
+    return http("/api/auth/register", { method: "POST", body: JSON.stringify({ name, email, password }) });
   },
 
   // ---------- GROUPS ----------
