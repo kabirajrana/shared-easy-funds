@@ -1,10 +1,11 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { api } from "@/services/api";
 import { useSession } from "@/lib/session";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { formatMonthlyCycle } from "@/lib/utils";
 import { toast } from "sonner";
 import { User as UserIcon, Users, KeyRound, X } from "lucide-react";
 
@@ -19,16 +20,19 @@ function Onboarding() {
   const [mode, setMode] = useState<Mode>("create");
   const [name, setName] = useState("");
   const [target, setTarget] = useState(40000);
+  const [targetDayOfMonth, setTargetDayOfMonth] = useState(5);
   const [code, setCode] = useState("");
   const [emailDraft, setEmailDraft] = useState("");
   const [emails, setEmails] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
 
-  if (!user) {
-    navigate({ to: "/auth" });
-    return null;
-  }
+  if (!user) return <Navigate to="/auth" replace />;
+
+  useEffect(() => {
+    if (name.trim()) return;
+    setName(mode === "solo" ? `${user.name} Fund` : `${user.name}'s Group`);
+  }, [mode, name, user.name]);
 
   const addEmail = () => {
     const e = emailDraft.trim().toLowerCase();
@@ -50,17 +54,23 @@ function Onboarding() {
     setBusy(true);
     try {
       if (mode === "solo") {
-        const g = await api.createGroup(name || "My fund", target, { solo: true });
+        const g = await api.createGroup(name.trim() || `${user.name} Fund`, target, {
+          solo: true,
+          targetDayOfMonth,
+        });
         setGroup(g);
         toast.success("Solo fund created");
         navigate({ to: "/" });
       } else if (mode === "create") {
-        const g = await api.createGroup(name || "New group", target, { memberEmails: emails });
+        const g = await api.createGroup(name.trim() || `${user.name}'s Group`, target, {
+          memberEmails: emails,
+          targetDayOfMonth,
+        });
         setGroup(g);
         const missing = emails.filter((e) => !api.allUsers().some((u) => u.email.toLowerCase() === e));
         if (missing.length) {
           toast.message("Group created", {
-            description: `${missing.length} email(s) aren't registered yet. Share your invite code so they can join.`,
+            description: `${missing.length} email(s) aren't registered yet. Share the secret invite code so they can join after they sign up.`,
           });
         } else {
           toast.success("Group created");
@@ -121,6 +131,19 @@ function Onboarding() {
             <Label>Monthly target (NPR)</Label>
             <Input type="number" value={target} onChange={(e) => setTarget(+e.target.value)} />
           </div>
+          <div className="space-y-1.5">
+            <Label>Target day of month</Label>
+            <Input
+              type="number"
+              min={1}
+              max={31}
+              value={targetDayOfMonth}
+              onChange={(e) => setTargetDayOfMonth(Math.max(1, Math.min(31, Number(e.target.value) || 1)))}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Current cycle: {formatMonthlyCycle(targetDayOfMonth)}
+          </p>
           <Button className="h-12 w-full" onClick={submit} disabled={busy}>
             {busy ? "Creating…" : "Create solo fund"}
           </Button>
@@ -137,6 +160,19 @@ function Onboarding() {
             <Label>Monthly target (NPR)</Label>
             <Input type="number" value={target} onChange={(e) => setTarget(+e.target.value)} />
           </div>
+          <div className="space-y-1.5">
+            <Label>Target day of month</Label>
+            <Input
+              type="number"
+              min={1}
+              max={31}
+              value={targetDayOfMonth}
+              onChange={(e) => setTargetDayOfMonth(Math.max(1, Math.min(31, Number(e.target.value) || 1)))}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Current cycle: {formatMonthlyCycle(targetDayOfMonth)}
+          </p>
           <div className="space-y-1.5">
             <Label>Invite members by email (optional)</Label>
             <div className="flex gap-2">
@@ -174,7 +210,7 @@ function Onboarding() {
       {mode === "join" && (
         <div className="mt-6 space-y-4">
           <p className="rounded-xl bg-muted/60 p-3 text-xs text-muted-foreground">
-            Ask the group leader for their invite code. It looks like <span className="font-mono font-bold">SAJHA-XXXX</span>.
+            Ask the group leader for the secret invite code. It looks like <span className="font-mono font-bold">SAJHA-XXXX</span>.
           </p>
           <div className="space-y-1.5">
             <Label>Invite code</Label>

@@ -5,6 +5,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import { AuthGate } from "@/components/layout/AuthGate";
 import { api } from "@/services/api";
 import { formatNPR, useSession } from "@/lib/session";
+import { Button } from "@/components/ui/button";
+import { exportCsv, exportExcel } from "@/utils/export";
 import {
   Bar, BarChart, Cell, Legend, Line, LineChart, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -38,6 +40,43 @@ function Reports() {
     return Object.entries(reports.byCategory).map(([name, value]) => ({ name, value: value as number }));
   }, [reports]);
 
+  const exportRows = useMemo(() => {
+    if (!reports) return [];
+
+    const totalSpent = categoryData.reduce((sum, item) => sum + item.value, 0);
+    const totalContributions = reports.monthly.reduce((sum, entry) => sum + entry.contributions, 0);
+    const totalExpenses = reports.monthly.reduce((sum, entry) => sum + entry.expenses, 0);
+
+    return [
+      ["Sajha report export"],
+      ["Group", group?.name ?? ""],
+      ["Period", period],
+      [""],
+      ["Summary"],
+      ["Metric", "Value"],
+      ["Total spent", totalSpent],
+      ["Total contributions", totalContributions],
+      ["Total expenses", totalExpenses],
+      [""],
+      ["Category breakdown"],
+      ["Category", "Amount"],
+      ...categoryData.map((entry) => [entry.name, entry.value]),
+      [""],
+      ["Monthly trends"],
+      ["Month", "Contributions", "Expenses"],
+      ...reports.monthly.map((entry) => [entry.month, entry.contributions, entry.expenses]),
+      [""],
+      ["Member contributions"],
+      ["Member", period === "month" ? "This month" : "This year"],
+      ...members.map((member) => [
+        member.user.name,
+        period === "month" ? member.contributed_this_month : member.contributed_this_year,
+      ]),
+    ];
+  }, [categoryData, group?.name, members, period, reports]);
+
+  const fileBase = `sajha-report-${(group?.name ?? "group").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "group"}-${period}`;
+
   return (
     <AppShell title="Reports">
       <div className="px-4 pt-4">
@@ -54,6 +93,25 @@ function Reports() {
               This {p}
             </button>
           ))}
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => exportCsv(fileBase, exportRows)}
+            disabled={exportRows.length === 0}
+          >
+            Export CSV
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => exportExcel(fileBase, exportRows)}
+            disabled={exportRows.length === 0}
+          >
+            Export Excel
+          </Button>
         </div>
 
         <section className="mt-4 rounded-2xl border border-border/60 bg-card p-4 shadow-[var(--shadow-card)]">

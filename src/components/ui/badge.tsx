@@ -4,20 +4,26 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
   {
     variants: {
       variant: {
-        default: "border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/80",
-        secondary:
-          "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        destructive:
-          "border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive/80",
-        outline: "text-foreground",
+        default: "bg-[var(--saj-green)] text-white",
+        even: "bg-[#f2f2ef] text-[#2c2c2a]",
+        owed: "bg-[var(--saj-green)] text-white",
+        settled: "bg-transparent px-0 text-[var(--saj-green)]",
+        success: "bg-[var(--saj-green)] text-white",
+        warning: "bg-[var(--saj-amber)] text-white",
+        danger: "bg-[var(--saj-red)] text-white",
+        info: "bg-[#f2f2ef] text-[#2c2c2a]",
+        neutral: "bg-[#f2f2ef] text-[#2c2c2a]",
+        secondary: "bg-[#f2f2ef] text-[#2c2c2a]",
+        destructive: "bg-[var(--saj-red)] text-white",
+        outline: "border border-[var(--saj-border)] bg-transparent text-[var(--saj-text)]",
       },
     },
     defaultVariants: {
-      variant: "default",
+      variant: "neutral",
     },
   },
 );

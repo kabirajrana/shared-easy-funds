@@ -1,6 +1,6 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Navigate, createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { AuthGate } from "@/components/layout/AuthGate";
 import { api } from "@/services/api";
@@ -17,14 +17,13 @@ export const Route = createFileRoute("/approvals")({
 
 function Approvals() {
   const { group, role } = useSession();
-  const navigate = useNavigate();
   const qc = useQueryClient();
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
 
-  useEffect(() => {
-    if (role && role !== "leader") navigate({ to: "/" });
-  }, [role, navigate]);
+  if (role && role !== "leader") {
+    return <Navigate to="/" replace />;
+  }
 
   const { data: txs = [] } = useQuery({
     queryKey: ["transactions", group?.id],

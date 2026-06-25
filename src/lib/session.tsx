@@ -1,11 +1,23 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { api, type User, type Group } from "@/services/api";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import type { Group, User } from "@/lib/types";
+import { formatNPR } from "@/lib/utils";
+import { demoGroups, demoUsers } from "@/store/seed";
 
 interface SessionState {
   user: User | null;
   group: Group | null;
   role: "leader" | "member" | null;
+  hydrated: boolean;
   setUser: (u: User | null) => void;
+  updateUser: (patch: Partial<User>) => void;
   setGroup: (g: Group | null) => void;
   setRoleAs: (uid: string) => void;
   logout: () => void;
@@ -15,58 +27,151 @@ const Ctx = createContext<SessionState | null>(null);
 
 const LS_USER = "sajha.user";
 const LS_GROUP = "sajha.group";
+const LS_ROLE = "sajha.role";
+
+function sameUser(a: User | null, b: User | null) {
+  if (a === b) return true;
+  if (!a || !b) return a === b;
+
+  return (
+    a.id === b.id &&
+    a.name === b.name &&
+    a.email === b.email &&
+    a.avatarColor === b.avatarColor &&
+    a.avatarImage === b.avatarImage &&
+    a.monthlyBudget === b.monthlyBudget &&
+    a.phone === b.phone &&
+    a.initials === b.initials &&
+    a.paymentQR?.provider === b.paymentQR?.provider &&
+    a.paymentQR?.name === b.paymentQR?.name &&
+    a.paymentQR?.qrImage === b.paymentQR?.qrImage
+  );
+}
+
+function sameGroup(a: Group | null, b: Group | null) {
+  if (a === b) return true;
+  if (!a || !b) return a === b;
+
+  return (
+    a.id === b.id &&
+    a.name === b.name &&
+    a.avatarColor === b.avatarColor &&
+    a.inviteCode === b.inviteCode &&
+    a.leaderId === b.leaderId &&
+    a.targetDayOfMonth === b.targetDayOfMonth &&
+    a.memberCount === b.memberCount &&
+    a.lastUpdated === b.lastUpdated &&
+    a.statusText === b.statusText &&
+    a.balance === b.balance &&
+    a.createdAt === b.createdAt &&
+    a.memberIds.length === b.memberIds.length &&
+    a.memberIds.every((memberId, index) => memberId === b.memberIds[index]) &&
+    a.paymentQR?.provider === b.paymentQR?.provider &&
+    a.paymentQR?.name === b.paymentQR?.name &&
+    a.paymentQR?.qrImage === b.paymentQR?.qrImage
+  );
+}
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [group, setGroup] = useState<Group | null>(null);
-  const [role, setRole] = useState<"leader" | "member" | null>(null);
+  const [user, setUserState] = useState<User | null>(demoUsers[0]);
+  const [group, setGroupState] = useState<Group | null>(demoGroups[0]);
+  const [role, setRole] = useState<"leader" | "member" | null>("leader");
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     try {
-      const u = localStorage.getItem(LS_USER);
-      const g = localStorage.getItem(LS_GROUP);
-      if (u) {
-        const parsed = JSON.parse(u) as User;
-        setUser(parsed);
-        api.setCurrentUser(parsed.id);
+      const storedUser = sessionStorage.getItem(LS_USER);
+      const storedGroup = sessionStorage.getItem(LS_GROUP);
+      const storedRole = sessionStorage.getItem(LS_ROLE) as "leader" | "member" | null;
+
+      if (storedUser) {
+        setUserState(JSON.parse(storedUser) as User);
       }
-      if (g) setGroup(JSON.parse(g));
-    } catch {}
+      if (storedGroup) {
+        setGroupState(JSON.parse(storedGroup) as Group);
+      }
+      if (storedRole === "leader" || storedRole === "member") {
+        setRole(storedRole);
+      }
+    } catch {
+      setUserState(null);
+      setGroupState(null);
+      setRole(null);
+    } finally {
+      setHydrated(true);
+    }
   }, []);
 
   useEffect(() => {
-    if (user) localStorage.setItem(LS_USER, JSON.stringify(user));
-    else localStorage.removeItem(LS_USER);
-  }, [user]);
+    if (!hydrated) return;
+    if (user) sessionStorage.setItem(LS_USER, JSON.stringify(user));
+    else sessionStorage.removeItem(LS_USER);
+  }, [hydrated, user]);
 
   useEffect(() => {
-    if (group) localStorage.setItem(LS_GROUP, JSON.stringify(group));
-    else localStorage.removeItem(LS_GROUP);
-  }, [group]);
+    if (!hydrated) return;
+    if (group) sessionStorage.setItem(LS_GROUP, JSON.stringify(group));
+    else sessionStorage.removeItem(LS_GROUP);
+  }, [hydrated, group]);
 
   useEffect(() => {
-    if (user && group) {
-      setRole(group.leader_id === user.id ? "leader" : "member");
-    } else {
-      setRole(null);
-    }
-  }, [user, group]);
+    if (!hydrated) return;
+    if (role) sessionStorage.setItem(LS_ROLE, role);
+    else sessionStorage.removeItem(LS_ROLE);
+  }, [hydrated, role]);
 
-  const setRoleAs = (uid: string) => {
-    if (group) setRole(group.leader_id === uid ? "leader" : "member");
-  };
+  const setUser = useCallback((next: User | null) => {
+    setUserState((current) => (sameUser(current, next) ? current : next));
+    setGroupState((current) => (current === null ? current : null));
+    setRole((current) => (current === null ? current : null));
+  }, []);
 
-  const logout = () => {
-    setUser(null);
-    setGroup(null);
-    setRole(null);
-  };
+  const updateUser = useCallback((patch: Partial<User>) => {
+    setUserState((current) => {
+      if (!current) return current;
+      return sameUser(current, { ...current, ...patch }) ? current : { ...current, ...patch };
+    });
+  }, []);
 
-  return (
-    <Ctx.Provider value={{ user, group, role, setUser, setGroup, setRoleAs, logout }}>
-      {children}
-    </Ctx.Provider>
+  const setGroup = useCallback(
+    (next: Group | null) => {
+      setGroupState((current) => (sameGroup(current, next) ? current : next));
+      const nextRole = next ? (next.leaderId === user?.id ? "leader" : "member") : null;
+      setRole((current) => (current === nextRole ? current : nextRole));
+    },
+    [user?.id],
   );
+
+  const setRoleAs = useCallback(
+    (uid: string) => {
+      const nextRole = group?.leaderId === uid ? "leader" : "member";
+      setRole((current) => (current === nextRole ? current : nextRole));
+    },
+    [group?.leaderId],
+  );
+
+  const logout = useCallback(() => {
+    setUserState((current) => (current === null ? current : null));
+    setGroupState((current) => (current === null ? current : null));
+    setRole((current) => (current === null ? current : null));
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      user,
+      group,
+      role,
+      hydrated,
+      setUser,
+      updateUser,
+      setGroup,
+      setRoleAs,
+      logout,
+    }),
+    [user, group, role, hydrated, setUser, updateUser, setGroup, setRoleAs, logout],
+  );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useSession() {
@@ -75,11 +180,9 @@ export function useSession() {
   return ctx;
 }
 
-export function formatNPR(n: number) {
-  return "NPR " + n.toLocaleString("en-IN");
-}
+export { formatNPR };
 
-export function categoryEmoji(cat: string) {
+export function categoryEmoji(category: string) {
   const map: Record<string, string> = {
     Groceries: "🛒",
     Vegetables: "🥬",
@@ -91,5 +194,6 @@ export function categoryEmoji(cat: string) {
     Other: "📦",
     Contribution: "💰",
   };
-  return map[cat] ?? "•";
+
+  return map[category] ?? "•";
 }

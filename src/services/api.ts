@@ -16,6 +16,7 @@ export interface Group {
   invite_code: string;
   leader_id: string;
   monthly_target: number;
+  target_day_of_month?: number;
   qr_image_url?: string;
   qr_label?: string;
   avatar_url?: string;
@@ -194,7 +195,7 @@ export const api = {
   async createGroup(
     name: string,
     monthly_target: number,
-    opts?: { solo?: boolean; memberEmails?: string[] }
+    opts?: { solo?: boolean; memberEmails?: string[]; targetDayOfMonth?: number }
   ): Promise<Group> {
     if (USE_MOCK) {
       if (!currentUserId) throw new Error("Please sign in first.");
@@ -204,6 +205,7 @@ export const api = {
         invite_code: genInvite(),
         leader_id: currentUserId,
         monthly_target,
+        target_day_of_month: opts?.targetDayOfMonth,
         solo: !!opts?.solo,
       };
       groups.push(g);
@@ -231,7 +233,10 @@ export const api = {
       persistMembers();
       return delay(g);
     }
-    return http("/api/groups", { method: "POST", body: JSON.stringify({ name, monthly_target, ...opts }) });
+    return http("/api/groups", {
+      method: "POST",
+      body: JSON.stringify({ name, monthly_target, ...opts }),
+    });
   },
 
   async joinGroup(invite_code: string): Promise<Group> {

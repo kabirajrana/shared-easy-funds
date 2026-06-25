@@ -53,7 +53,7 @@ function QrPage() {
             <div className="mx-auto mt-4 grid aspect-square w-full max-w-xs place-items-center rounded-2xl bg-white p-4">
               <img src={img} alt="Payment QR" className="h-full w-full object-contain" />
             </div>
-            <p className="mt-4 text-xs text-muted-foreground">Scan with eSewa, Khalti, or your banking app</p>
+            <p className="mt-4 text-xs text-muted-foreground">Scan with eSewa or your banking app</p>
           </div>
         ) : (
           <div className="w-full rounded-3xl border border-dashed border-border bg-muted/30 p-12 text-center text-sm text-muted-foreground">

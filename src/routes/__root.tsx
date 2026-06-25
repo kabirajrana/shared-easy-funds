@@ -10,8 +10,20 @@ import type { ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { SessionProvider } from "@/lib/session";
 import { Toaster } from "@/components/ui/sonner";
+import { MobileFrame } from "@/components/layout/MobileFrame";
+import { BottomNav } from "@/components/layout/BottomNav";
+import { applyTheme, getInitialTheme } from "@/lib/theme";
+import { useEffect } from "react";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  notFoundComponent: () => (
+    <div className="grid min-h-dvh place-items-center px-6 text-center">
+      <div className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+        <p className="text-[14px] font-medium text-[var(--saj-text)]">Page not found</p>
+        <p className="mt-1 text-[12px] text-[var(--saj-muted)]">The route you opened is not available.</p>
+      </div>
+    </div>
+  ),
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -56,10 +68,20 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  useEffect(() => {
+    applyTheme(getInitialTheme());
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <SessionProvider>
-        <Outlet />
+        <MobileFrame>
+          <main className="flex-1 overflow-y-auto">
+            <Outlet />
+          </main>
+          <BottomNav />
+        </MobileFrame>
         <Toaster position="top-center" />
       </SessionProvider>
     </QueryClientProvider>
