@@ -33,10 +33,12 @@ export interface Group {
   id: string;
   name: string;
   avatarColor: string;
+  avatarImage?: string;
   inviteCode: string;
   leaderId: string;
   memberIds: string[];
   targetDayOfMonth?: number;
+  targetDate?: string;
   paymentQR?: PaymentQR;
   createdAt: string;
   memberCount?: number;

@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/session";
 import { getInitials } from "@/lib/utils";
 import type { User } from "@/lib/types";
+import { useUserStore } from "@/store/useUserStore";
+import { useGroupStore } from "@/store/useGroupStore";
+import { useExpenseStore } from "@/store/useExpenseStore";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Auth — Sajha" }] }),
@@ -16,9 +19,10 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const { user, hydrated, setUser, setGroup } = useSession();
+  const signInUser = useUserStore((state) => state.signIn);
   const [mode, setMode] = useState("login");
   const [name, setName] = useState("");
-  const [emailOrPhone, setEmailOrPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
@@ -29,24 +33,43 @@ function AuthPage() {
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    const identifier = emailOrPhone.trim();
+    const fullName = name.trim();
+    const emailAddress = email.trim().toLowerCase();
+    const emailPattern = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+    if (!emailAddress || !emailPattern.test(emailAddress)) {
+      toast.error("Please enter a real email address.");
+      return;
+    }
+
+    if (mode === "signup" && !fullName) {
+      toast.error("Please enter your full name.");
+      return;
+    }
+
     const displayName =
-      mode === "signup" && name.trim()
-        ? name.trim()
-        : identifier.includes("@")
-          ? identifier.split("@")[0]
-          : identifier || "User";
+      mode === "signup" && fullName
+        ? fullName
+        : emailAddress.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
     const nextUser: User = {
       id: crypto.randomUUID(),
       name: displayName,
-      email: identifier.includes("@") ? identifier : `${displayName.toLowerCase().replace(/\s+/g, ".")}@example.com`,
+      email: emailAddress,
       avatarColor: "#1A6B5A",
       monthlyBudget: 45000,
-      phone: phone.trim() || (!identifier.includes("@") ? identifier : ""),
+      phone: phone.trim() || "",
       initials: getInitials(displayName),
     };
 
     setUser(nextUser);
+    signInUser(nextUser);
+    if (mode === "signup") {
+      useGroupStore.getState().resetWorkspace();
+      useExpenseStore.getState().resetWorkspace();
+    } else {
+      useGroupStore.getState().hydrateWorkspace();
+      useExpenseStore.getState().hydrateWorkspace();
+    }
     setGroup(null);
     toast.success(mode === "login" ? "Welcome back" : "Account created");
     navigate({ to: "/" });
@@ -107,23 +130,22 @@ function AuthPage() {
         />
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-          {mode === "signup" ? (
-            <Input
-              label="Full name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Aarav Sharma"
-              leftIcon={<IconUser className="h-4 w-4" />}
-            />
-          ) : null}
-
           <Input
-            label="Email or phone"
-            value={emailOrPhone}
-            onChange={(event) => setEmailOrPhone(event.target.value)}
-            placeholder="aarav@example.com"
+            label={mode === "signup" ? "Full name" : "Email address"}
+            value={mode === "signup" ? name : email}
+            onChange={(event) => (mode === "signup" ? setName(event.target.value) : setEmail(event.target.value))}
+            placeholder={mode === "signup" ? "Aarav Sharma" : "aarav@example.com"}
             leftIcon={<IconUser className="h-4 w-4" />}
           />
+
+          {mode === "signup" ? (
+            <Input
+              label="Email address"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="aarav@example.com"
+            />
+          ) : null}
 
           {mode === "signup" ? (
             <Input

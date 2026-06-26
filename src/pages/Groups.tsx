@@ -20,12 +20,19 @@ export function GroupsPage() {
             </Link>
           </Button>
         }
-      />
+      /> 
 
       <div className="space-y-3 px-4">
-        {groups.map((group) => (
-          <GroupCard key={group.id} group={group} />
-        ))}
+        {groups.length > 0 ? (
+          groups.map((group) => <GroupCard key={group.id} group={group} />)
+        ) : (
+          <div className="rounded-[20px] border border-[var(--saj-border)] bg-[var(--saj-surface)] p-5 text-center shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+            <p className="text-[15px] font-semibold text-[var(--saj-text)]">No groups yet</p>
+            <p className="mt-1 text-[12px] text-[var(--saj-muted)]">
+              Create your first group to start tracking shared budgets and expenses.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -18,13 +18,20 @@ export function GroupCard({ group }: { group: Group }) {
       <div className="rounded-[24px] bg-white p-4 shadow-[var(--shadow-card)] transition active:scale-[0.99]">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            <SajhaAvatar name={group.name} size="md" />
+            <SajhaAvatar name={group.name} src={group.avatarImage} size="md" />
             <div className="min-w-0">
               <h3 className="truncate text-base font-semibold text-[var(--color-text)]">
                 {group.name}
               </h3>
               <p className="text-xs text-[var(--color-hint)]">
                 {group.memberCount} members · Updated {formatDate(group.lastActivity)}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-hint)]">
+                {group.targetDate
+                  ? `Target date: ${formatDate(group.targetDate)}`
+                  : group.targetDayOfMonth
+                    ? `Target day: ${group.targetDayOfMonth}`
+                    : "No target set"}
               </p>
             </div>
           </div>

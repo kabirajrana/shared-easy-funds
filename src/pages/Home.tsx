@@ -3,6 +3,7 @@ import { IconBell } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { SajhaAvatar } from "@/components/ui/avatar";
 import { BudgetBar } from "@/components/ui/BudgetBar";
+import { Button } from "@/components/ui/button";
 import { ExpenseItem } from "@/components/expenses/ExpenseItem";
 import { useSession } from "@/lib/session";
 import { useExpenseStore } from "@/store/useExpenseStore";
@@ -14,19 +15,21 @@ const EMPTY_MEMBERS: readonly unknown[] = [];
 export function HomePage() {
   const { user } = useSession();
   const activeGroupId = useGroupStore((state) => state.activeGroupId);
+  const groups = useGroupStore((state) => state.groups);
   const expenses = useExpenseStore((state) => state.expenses);
   const groupMembers = useGroupStore((state) => state.groupMembers);
+  const hasWorkspace = groups.length > 0 || expenses.length > 0;
   const summary = useMemo(() => {
     const userId = user?.id ?? "u1";
     const relevant = expenses.filter(
       (expense) => expense.paidById === userId || expense.splits.some((split) => split.userId === userId),
     );
     const totalSpent = relevant.reduce((sum, expense) => sum + expense.amount, 0);
-    const budget = 45000;
+    const budget = user?.monthlyBudget ?? 0;
     return {
       totalSpent,
       budget,
-      budgetUsed: Math.round((totalSpent / budget) * 100),
+      budgetUsed: budget > 0 ? Math.round((totalSpent / budget) * 100) : 0,
     };
   }, [expenses, user?.id]);
   const members = groupMembers[activeGroupId] ?? EMPTY_MEMBERS;
@@ -50,7 +53,7 @@ export function HomePage() {
               Namaste, {user?.name.split(" ")[0] ?? "Ram"}
             </p>
             <p className="text-[11px] text-[var(--saj-muted)]">
-              {members.length} members in your active group
+              {hasWorkspace ? `${members.length} members in your active group` : "Set up your first group to start tracking together"}
             </p>
           </div>
           <button type="button" className="grid h-9 w-9 place-items-center rounded-full text-[var(--saj-muted)]">
@@ -60,29 +63,57 @@ export function HomePage() {
       </header>
 
       <main className="space-y-3 px-4 pb-20 pt-3">
-        <section className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--saj-muted)]">
-            Monthly summary
-          </p>
-          <div className="mt-2 flex items-end justify-between gap-3">
-            <div>
-              <p className="text-[11px] text-[var(--saj-muted)]">Total spent</p>
-              <p className="text-[28px] font-semibold text-[var(--saj-text)]">
-                {formatNPR(summary.totalSpent)}
+        {!hasWorkspace ? (
+          <section className="overflow-hidden rounded-[20px] border border-[var(--saj-border)] bg-[linear-gradient(135deg,rgba(26,107,90,0.96),rgba(23,51,43,0.98))] p-5 text-white shadow-[0_10px_28px_rgba(0,0,0,0.18)]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/65">
+              Getting started
+            </p>
+            <h2 className="mt-2 text-[1.35rem] font-bold leading-tight">
+              Create your first group and set a target budget.
+            </h2>
+            <p className="mt-2 max-w-[18rem] text-[13px] leading-6 text-white/80">
+              No shared data yet. Start by creating a group, picking your target, and inviting the people you want to split with.
+            </p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <Button asChild className="h-11 rounded-[18px] bg-white text-[var(--saj-green)] hover:bg-white/95">
+                <Link to="/groups/new">Create group</Link>
+              </Button>
+              <Button asChild variant="secondary" className="h-11 rounded-[18px] border-white/20 bg-white/10 text-white hover:bg-white/15">
+                <Link to="/groups">Go to groups</Link>
+              </Button>
+            </div>
+            <div className="mt-4 rounded-2xl border border-white/15 bg-white/10 p-3">
+              <p className="text-[12px] font-medium text-white">Set your target budget</p>
+              <p className="mt-1 text-[11px] leading-5 text-white/75">
+                Group leaders can define the budget and target date from the Groups section.
               </p>
             </div>
-            <div className="text-right">
-              <p className="text-[11px] text-[var(--saj-muted)]">Budget left</p>
-              <p className="text-[18px] font-semibold text-[var(--saj-green)]">
-                {formatNPR(Math.max(summary.budget - summary.totalSpent, 0))}
-              </p>
+          </section>
+        ) : (
+          <section className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--saj-muted)]">
+              Target budget
+            </p>
+            <div className="mt-2 flex items-end justify-between gap-3">
+              <div>
+                <p className="text-[11px] text-[var(--saj-muted)]">Total spent</p>
+                <p className="text-[28px] font-semibold text-[var(--saj-text)]">
+                  {formatNPR(summary.totalSpent)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[11px] text-[var(--saj-muted)]">Budget left</p>
+                <p className="text-[18px] font-semibold text-[var(--saj-green)]">
+                  {formatNPR(Math.max((summary.budget || 0) - summary.totalSpent, 0))}
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="mt-3 flex items-center gap-2">
-            <BudgetBar value={summary.budgetUsed} className="flex-1" />
-            <span className="text-[11px] font-medium text-[var(--saj-green)]">{summary.budgetUsed}%</span>
-          </div>
-        </section>
+            <div className="mt-3 flex items-center gap-2">
+              <BudgetBar value={summary.budgetUsed} className="flex-1" />
+              <span className="text-[11px] font-medium text-[var(--saj-green)]">{summary.budgetUsed}%</span>
+            </div>
+          </section>
+        )}
 
         <section className="rounded-[12px] border border-[var(--saj-border)] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <div className="flex items-center justify-between px-4 pt-4">
@@ -92,13 +123,20 @@ export function HomePage() {
             </Link>
           </div>
           <div className="mt-2 divide-y divide-[var(--saj-border-soft)]">
-            {recentExpenses.map((expense) => (
-              <ExpenseItem
-                key={expense.id}
-                expense={expense}
-                paidBy={user}
-              />
-            ))}
+            {hasWorkspace && recentExpenses.length > 0 ? (
+              recentExpenses.map((expense) => <ExpenseItem key={expense.id} expense={expense} paidBy={user} />)
+            ) : (
+              <div className="px-4 py-5 text-center">
+                <p className="text-[13px] font-medium text-[var(--saj-text)]">
+                  {hasWorkspace ? "No recent expenses" : "Nothing here yet"}
+                </p>
+                <p className="mt-1 text-[11px] text-[var(--saj-muted)]">
+                  {hasWorkspace
+                    ? "Expenses will appear here once you start adding activity."
+                    : "Create a group from the Groups section to begin tracking shared spending."}
+                </p>
+              </div>
+            )}
           </div>
         </section>
       </main>

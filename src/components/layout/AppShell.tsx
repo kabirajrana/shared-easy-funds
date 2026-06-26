@@ -11,6 +11,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
 export function AppShell({
   children,
   title,
@@ -33,12 +46,17 @@ export function AppShell({
   const [editOpen, setEditOpen] = useState(false);
   const [draftName, setDraftName] = useState(group?.name ?? "");
   const [draftAvatar, setDraftAvatar] = useState<string | undefined>(group?.avatar_url);
+  const [draftTargetDate, setDraftTargetDate] = useState(group?.targetDate ?? "");
   const fileRef = useRef<HTMLInputElement>(null);
+  const today = new Date();
+  const minTargetDate = toDateInputValue(today);
+  const maxTargetDate = toDateInputValue(addDays(today, 30));
 
   const openEdit = () => {
     if (!canEdit) return;
     setDraftName(group!.name);
     setDraftAvatar(group!.avatar_url);
+    setDraftTargetDate(group!.targetDate ?? "");
     setEditOpen(true);
   };
 
@@ -52,7 +70,12 @@ export function AppShell({
 
   const save = () => {
     if (!group) return;
-    setGroup({ ...group, name: draftName.trim() || group.name, avatar_url: draftAvatar });
+    setGroup({
+      ...group,
+      name: draftName.trim() || group.name,
+      avatar_url: draftAvatar,
+      targetDate: draftTargetDate || undefined,
+    });
     setEditOpen(false);
   };
 
@@ -147,6 +170,19 @@ export function AppShell({
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Group name</label>
             <Input value={draftName} onChange={(e) => setDraftName(e.target.value)} placeholder="Flat 4B – Baluwatar" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Target date</label>
+            <Input
+              type="date"
+              value={draftTargetDate}
+              min={minTargetDate}
+              max={maxTargetDate}
+              onChange={(e) => setDraftTargetDate(e.target.value)}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Choose a date from today through the next 30 days, or clear it to keep the monthly target.
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>

@@ -111,11 +111,24 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
           if (email) addMember(group.id, email);
         }} />
         <div className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <p className="text-[11px] text-[var(--saj-muted)]">Monthly target day</p>
-          <p className="mt-1 text-[14px] font-medium text-[var(--saj-text)]">{formatTargetDay(group.targetDayOfMonth)}</p>
-          <p className="mt-1 text-[12px] text-[var(--saj-muted)]">
-            Current cycle: {formatMonthlyCycle(group.targetDayOfMonth)}
-          </p>
+          <p className="text-[11px] text-[var(--saj-muted)]">Target schedule</p>
+          {group.targetDate ? (
+            <>
+              <p className="mt-1 text-[14px] font-medium text-[var(--saj-text)]">
+                Due on {new Date(group.targetDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              </p>
+              <p className="mt-1 text-[12px] text-[var(--saj-muted)]">
+                This group uses a fixed target date instead of a monthly cycle.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-[14px] font-medium text-[var(--saj-text)]">{formatTargetDay(group.targetDayOfMonth)}</p>
+              <p className="mt-1 text-[12px] text-[var(--saj-muted)]">
+                Current cycle: {formatMonthlyCycle(group.targetDayOfMonth)}
+              </p>
+            </>
+          )}
         </div>
         <PaymentQRCard paymentQR={group.paymentQR} canEdit={canEditQr} onAttach={onAttachQr} onShare={onShareQr} />
         {canEditQr ? (
