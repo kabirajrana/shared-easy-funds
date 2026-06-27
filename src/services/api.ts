@@ -156,6 +156,11 @@ const persistMembers = () => save(LS_MEMBERS, memberships);
 const persistTxs = () => save(LS_TXS, transactions);
 const persistNotifs = () => save(LS_NOTIFS, notifications);
 
+function emitNotificationsChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("sajha:notifications-updated"));
+}
+
 const iso = (d: Date) => d.toISOString();
 const delay = <T,>(data: T, ms = 120) =>
   new Promise<T>((r) => setTimeout(() => r(data), ms));
@@ -222,6 +227,7 @@ function getCurrentUser() {
 function createNotification(notification: Notification) {
   notifications.unshift(notification);
   persistNotifs();
+  emitNotificationsChanged();
 }
 
 async function hashPassword(pw: string): Promise<string> {
@@ -712,6 +718,7 @@ export const api = {
           : n,
       );
       persistNotifs();
+      emitNotificationsChanged();
       return delay(undefined);
     }
     await http(`/api/notifications/read`, { method: "POST" });

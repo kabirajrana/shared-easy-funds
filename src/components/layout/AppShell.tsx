@@ -1,7 +1,7 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { Bell, Home, ListChecks, BarChart3, Users, Plus, ArrowLeft, Upload } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { useRef, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/services/api";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -40,6 +40,7 @@ export function AppShell({
   hideNav?: boolean;
 }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { user, group, role, setGroup, updateUser } = useSession();
   const updateBudget = useUserStore((state) => state.updateBudget);
@@ -95,8 +96,30 @@ export function AppShell({
     queryKey: ["notifications"],
     queryFn: api.getNotifications,
     enabled: !!user,
+    refetchInterval: 3000,
   });
   const unread = notifs?.filter((n) => !n.read).length ?? 0;
+
+  useEffect(() => {
+    const refreshNotifications = () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    };
+
+    const refreshOnStorage = (event: StorageEvent) => {
+      if (event.key === "sajha.notifications" || event.key === "sajha.currentUserId") {
+        refreshNotifications();
+      }
+    };
+
+    window.addEventListener("sajha:notifications-updated", refreshNotifications as EventListener);
+    window.addEventListener("storage", refreshOnStorage);
+    window.addEventListener("focus", refreshNotifications);
+    return () => {
+      window.removeEventListener("sajha:notifications-updated", refreshNotifications as EventListener);
+      window.removeEventListener("storage", refreshOnStorage);
+      window.removeEventListener("focus", refreshNotifications);
+    };
+  }, [queryClient]);
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col bg-background">
