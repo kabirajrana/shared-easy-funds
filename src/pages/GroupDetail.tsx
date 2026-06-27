@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ExpenseItem } from "@/components/expenses/ExpenseItem";
 import { InviteCodeCard } from "@/components/groups/InviteCodeCard";
+import { DeleteGroupDialog } from "@/components/groups/DeleteGroupDialog";
 import { PaymentQRCard } from "@/components/groups/PaymentQRCard";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -181,33 +182,6 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
             <Badge variant={group.balance === 0 ? "settled" : "owed"}>
               {group.balance === 0 ? "Settled up" : "Owed"}
             </Badge>
-            {canDeleteGroup ? (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button type="button" variant="destructive" size="sm" className="h-8 rounded-full px-3">
-                    Delete
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete this group?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will remove the group, its members, and its expenses from your workspace.
-                      The action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => deleteGroupMutation.mutate()}
-                      className="bg-[var(--saj-red)] text-white hover:bg-[var(--saj-red)]/90"
-                    >
-                      {deleteGroupMutation.isPending ? "Deleting..." : "Delete group"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            ) : null}
           </div>
         }
       />
@@ -388,6 +362,28 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
             </div>
           </div>
         )}
+
+        {canDeleteGroup ? (
+          <section className="rounded-[16px] border border-[rgba(239,68,68,0.18)] bg-[linear-gradient(180deg,rgba(255,247,247,1),rgba(255,255,255,1))] p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--saj-red)]">
+              Danger zone
+            </p>
+            <h3 className="mt-1 text-[15px] font-semibold text-[var(--saj-text)]">Delete this group</h3>
+            <p className="mt-1 text-[12px] leading-5 text-[var(--saj-muted)]">
+              This action removes the group, members, expenses, and notifications from your workspace.
+              It is only available to the team leader and cannot be undone.
+            </p>
+            <div className="mt-3">
+              <DeleteGroupDialog
+                groupName={group.name}
+                onDelete={() => deleteGroupMutation.mutate()}
+                pending={deleteGroupMutation.isPending}
+                triggerLabel="I understand, delete this group"
+                triggerClassName="w-full rounded-full bg-[var(--saj-red)] text-white hover:bg-[var(--saj-red)]/90"
+              />
+            </div>
+          </section>
+        ) : null}
       </div>
     </div>
   );

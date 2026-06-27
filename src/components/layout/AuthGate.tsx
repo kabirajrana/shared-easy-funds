@@ -10,7 +10,8 @@ export function AuthGate({
   requireAuth?: boolean;
 }) {
   const { user, hydrated } = useSession();
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const location = useRouterState({ select: (state) => state.location as any });
+  const pathname = location.pathname;
 
   if (!hydrated) {
     return (
@@ -21,7 +22,8 @@ export function AuthGate({
   }
 
   if (requireAuth && !user && pathname !== "/auth") {
-    return <Navigate to="/auth" replace />;
+    const nextPath = `${location.pathname}${location.searchStr ?? ""}${location.hash ?? ""}`;
+    return <Navigate to="/auth" search={{ redirect: nextPath }} replace />;
   }
 
   return <>{children}</>;

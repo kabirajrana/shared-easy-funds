@@ -609,6 +609,10 @@ export const api = {
   setCurrentUser(id: string) {
     currentUserId = id;
     if (typeof window !== "undefined") localStorage.setItem(LS_CURRENT_USER, id);
+    if (id) {
+      refreshUsers();
+      syncPendingInviteNotifications();
+    }
   },
   getCurrentUserId() {
     return currentUserId;

@@ -13,17 +13,23 @@ export function InviteCodeCard({
 }) {
   const [email, setEmail] = useState("");
 
+  const buildInviteLink = () => {
+    if (typeof window === "undefined") return `/groups/?invite=${encodeURIComponent(inviteCode)}`;
+    return `${window.location.origin}/groups/?invite=${encodeURIComponent(inviteCode)}`;
+  };
+
   const copyInvite = async () => {
-    await navigator.clipboard.writeText(inviteCode);
+    await navigator.clipboard.writeText(buildInviteLink());
   };
 
   const shareInvite = async () => {
-    const text = `Join my Sajha group with invite code: ${inviteCode}`;
+    const inviteLink = buildInviteLink();
+    const text = `Join my Sajha group with invite link: ${inviteLink}`;
     if (navigator.share) {
-      await navigator.share({ text, title: "Sajha invite" });
+      await navigator.share({ text, title: "Sajha invite", url: inviteLink });
       return;
     }
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(inviteLink);
   };
 
   return (
@@ -31,6 +37,9 @@ export function InviteCodeCard({
       <p className="text-[11px] text-[var(--saj-muted)]">Invite code - share with members to join</p>
       <p className="mt-1 text-[22px] font-semibold tracking-[0.08em] text-[var(--saj-text)]">
         {inviteCode}
+      </p>
+      <p className="mt-1 break-all text-[11px] text-[var(--saj-muted)]">
+        Link: {buildInviteLink()}
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <Button variant="secondary" onClick={copyInvite}>

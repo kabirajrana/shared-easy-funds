@@ -4,18 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatDate, formatMonthlyCycle } from "@/lib/utils";
 import { SajhaAvatar } from "@/components/ui/avatar";
 import { formatCurrency } from "@/utils/formatCurrency";
-import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { DeleteGroupDialog } from "@/components/groups/DeleteGroupDialog";
 
 export function GroupCard({
   group,
@@ -37,7 +26,7 @@ export function GroupCard({
   return (
     <div className="relative">
       <Link to={`/groups/${group.id}`} className="block">
-        <div className={`rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition active:scale-[0.99] ${canDelete ? "pr-16" : ""}`}>
+        <div className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition active:scale-[0.99]">
           <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <SajhaAvatar name={group.name} src={group.avatarImage} size="md" />
@@ -74,32 +63,20 @@ export function GroupCard({
       </Link>
 
       {canDelete && onDelete ? (
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              className="absolute right-3 top-3 h-8 rounded-full px-3"
-            >
-              Delete
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete this group?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will remove the group and its saved data from your workspace. The action cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => void onDelete()}>
-                Delete group
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <div className="mt-3 rounded-[12px] border border-[rgba(239,68,68,0.14)] bg-[rgba(255,247,247,0.9)] p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--saj-red)]">Danger zone</p>
+          <p className="mt-1 text-[12px] text-[var(--saj-muted)]">
+            Deleting this group is permanent. Type the group name in the confirmation dialog before continuing.
+          </p>
+          <div className="mt-3">
+            <DeleteGroupDialog
+              groupName={group.name}
+              onDelete={() => void onDelete()}
+              triggerLabel="Delete group"
+              triggerClassName="w-full rounded-full"
+            />
+          </div>
+        </div>
       ) : null}
     </div>
   );

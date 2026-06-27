@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { IconPlus } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -22,6 +22,15 @@ export function GroupsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [inviteCode, setInviteCode] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const incomingInvite = params.get("invite");
+    if (incomingInvite) {
+      setInviteCode(incomingInvite.toUpperCase());
+    }
+  }, []);
 
   const deleteGroupMutation = useMutation({
     mutationFn: async (groupId: string) => {

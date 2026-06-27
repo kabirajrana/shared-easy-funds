@@ -25,6 +25,9 @@ function AuthPage() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
+  const redirectTo = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("redirect")
+    : null;
 
   if (hydrated && user) {
     return <Navigate to="/" replace />;
@@ -69,6 +72,10 @@ function AuthPage() {
       signInUser(nextUser);
       setGroup(null);
       toast.success(mode === "login" ? "Welcome back" : "Account created");
+      if (redirectTo) {
+        navigate({ to: redirectTo });
+        return;
+      }
       navigate({ to: mode === "signup" ? "/onboarding" : "/" });
     } catch (error: any) {
       toast.error(error?.message ?? "Something went wrong");
