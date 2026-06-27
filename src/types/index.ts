@@ -47,6 +47,22 @@ export interface Group {
   balance?: number;
 }
 
+export interface ChatMessage {
+  id: string;
+  groupId: string;
+  senderId: string;
+  senderName: string;
+  senderColor?: string;
+  senderInitials?: string;
+  kind: "text" | "image" | "voice" | "file";
+  text?: string;
+  mediaUrl?: string;
+  mediaName?: string;
+  mediaType?: string;
+  durationMs?: number;
+  createdAt: string;
+}
+
 export interface ExpenseSplit {
   userId: string;
   amount: number;

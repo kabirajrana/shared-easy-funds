@@ -150,6 +150,24 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
           />
         ) : null}
 
+        <Link
+          to={`/groups/${group.id}/chat`}
+          className="block rounded-[16px] border border-[rgba(26,107,90,0.18)] bg-[linear-gradient(135deg,rgba(26,107,90,0.12),rgba(255,255,255,1))] p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] transition active:scale-[0.99]"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.14em] text-[var(--saj-green)]">Chat</p>
+              <h3 className="mt-1 text-[15px] font-semibold text-[var(--saj-text)]">Open full group chat</h3>
+              <p className="mt-1 text-[12px] text-[var(--saj-muted)]">
+                Talk with the group in a dedicated full-screen messenger view.
+              </p>
+            </div>
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[var(--saj-green)] text-white">
+              <span className="text-[18px] font-bold">+</span>
+            </div>
+          </div>
+        </Link>
+
         <div className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-[14px] font-medium text-[var(--saj-text)]">

@@ -3,6 +3,7 @@ import {
   Outlet,
   createRootRouteWithContext,
   HeadContent,
+  useRouterState,
   Scripts,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -68,6 +69,8 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const hideBottomNav = pathname.startsWith("/groups/") && pathname.endsWith("/chat");
 
   useEffect(() => {
     applyTheme(getInitialTheme());
@@ -80,7 +83,7 @@ function RootComponent() {
           <main className="flex-1 overflow-y-auto">
             <Outlet />
           </main>
-          <BottomNav />
+          {!hideBottomNav ? <BottomNav /> : null}
         </MobileFrame>
         <Toaster position="top-center" />
       </SessionProvider>
