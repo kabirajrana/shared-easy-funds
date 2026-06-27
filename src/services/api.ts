@@ -449,11 +449,69 @@ function createNotification(notification: Notification) {
     created_at: notification.created_at ?? notification.date ?? new Date().toISOString(),
   });
   if (!normalized) return null;
-  notifications.unshift(normalized);
+  notifications = [normalized, ...notifications.filter((entry) => entry.id !== normalized.id)];
   persistNotifs();
   emitNotification(normalized);
   emitNotificationsChanged();
   return normalized;
+}
+
+function buildGroupInviteNotification(invitation: GroupInvitation, group: Group, sender?: User | null): Notification {
+  const now = iso(new Date());
+  return {
+    id: `n_${invitation.id}`,
+    type: "group_invite",
+    title: `Group invite from ${group.name}`,
+    body: `${sender?.name ?? "A group leader"} invited you to join ${group.name}.`,
+    message: `${sender?.name ?? "A group leader"} invited you to join ${group.name}.`,
+    date: now,
+    created_at: now,
+    read: false,
+    is_read: false,
+    recipient_id: invitation.invited_user_id,
+    recipient_email: invitation.invited_email,
+    data: {
+      invitationId: invitation.id,
+      groupId: group.id,
+      groupName: group.name,
+      inviterName: sender?.name,
+      inviteCode: group.invite_code,
+      leaderId: sender?.id ?? invitation.invited_by,
+      status: invitation.status,
+    },
+    meta: {
+      kind: "group_invite",
+      invitationId: invitation.id,
+      group_id: group.id,
+      group_name: group.name,
+      invite_code: group.invite_code,
+      sender_id: sender?.id ?? invitation.invited_by,
+      sender_name: sender?.name,
+      status: invitation.status === "declined" ? "rejected" : invitation.status === "accepted" ? "accepted" : "pending",
+    },
+  };
+}
+
+function syncPendingInviteNotifications() {
+  refreshInvitations();
+  refreshGroups();
+  refreshUsers();
+
+  const currentUser = getCurrentUser();
+  if (!currentUser) return;
+  const currentEmail = currentUser.email.toLowerCase();
+
+  for (const invitation of invitations) {
+    if (invitation.status !== "pending") continue;
+    if (invitation.invited_user_id !== currentUser.id && invitation.invited_email.toLowerCase() !== currentEmail) continue;
+
+    const group = groups.find((entry) => entry.id === invitation.group_id);
+    if (!group) continue;
+    const sender = users.find((entry) => entry.id === invitation.invited_by) ?? null;
+    createNotification(buildGroupInviteNotification(invitation, group, sender));
+  }
+
+  persistNotifs();
 }
 
 function createInvitation(input: {
@@ -725,38 +783,7 @@ export const api = {
         token: g.invite_code,
       });
       if (targetUser) {
-        createNotification({
-          id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
-          type: "group_invite",
-          title: `Group invite from ${g.name}`,
-          body: `${getCurrentUser()?.name ?? "A group leader"} invited you to join ${g.name}.`,
-          message: `${getCurrentUser()?.name ?? "A group leader"} invited you to join ${g.name}.`,
-          date: iso(new Date()),
-          created_at: iso(new Date()),
-          read: false,
-          is_read: false,
-          recipient_id: targetUser.id,
-          recipient_email: recipientEmail,
-          data: {
-            invitationId: invitation.id,
-            groupId: g.id,
-            groupName: g.name,
-            inviterName: getCurrentUser()?.name,
-            inviteCode: g.invite_code,
-            leaderId: currentUserId,
-            status: "pending",
-          },
-          meta: {
-            kind: "group_invite",
-            invitationId: invitation.id,
-            group_id: g.id,
-            group_name: g.name,
-            invite_code: g.invite_code,
-            sender_id: currentUserId,
-            sender_name: getCurrentUser()?.name,
-            status: "pending",
-          },
-        });
+        createNotification(buildGroupInviteNotification(invitation, g, getCurrentUser()));
       }
       return delay(undefined);
     }
@@ -1132,6 +1159,7 @@ export const api = {
   // ---------- NOTIFICATIONS ----------
   async getNotifications(options?: { unreadOnly?: boolean }): Promise<Notification[]> {
     if (USE_MOCK) {
+      syncPendingInviteNotifications();
       const visible = refreshNotifications()
         .filter(getNotificationVisibilityPredicate())
         .sort((a, b) => +new Date(b.date) - +new Date(a.date))
