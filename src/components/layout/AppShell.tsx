@@ -5,6 +5,8 @@ import { useRef, useState, type ReactNode } from "react";
 import { api } from "@/services/api";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
+import { useUserStore } from "@/store/useUserStore";
+import { toast } from "sonner";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -39,7 +41,8 @@ export function AppShell({
 }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { user, group, role, setGroup } = useSession();
+  const { user, group, role, setGroup, updateUser } = useSession();
+  const updateBudget = useUserStore((state) => state.updateBudget);
   const isHome = pathname === "/";
   const canEdit = !back && isHome && role === "leader" && !!group;
 
@@ -47,6 +50,7 @@ export function AppShell({
   const [draftName, setDraftName] = useState(group?.name ?? "");
   const [draftAvatar, setDraftAvatar] = useState<string | undefined>(group?.avatar_url);
   const [draftTargetDate, setDraftTargetDate] = useState(group?.targetDate ?? "");
+  const [draftBudget, setDraftBudget] = useState(String(user?.monthlyBudget ?? 0));
   const fileRef = useRef<HTMLInputElement>(null);
   const today = new Date();
   const minTargetDate = toDateInputValue(today);
@@ -57,6 +61,7 @@ export function AppShell({
     setDraftName(group!.name);
     setDraftAvatar(group!.avatar_url);
     setDraftTargetDate(group!.targetDate ?? "");
+    setDraftBudget(String(user?.monthlyBudget ?? 0));
     setEditOpen(true);
   };
 
@@ -70,12 +75,19 @@ export function AppShell({
 
   const save = () => {
     if (!group) return;
+    const nextBudget = Number(draftBudget);
+    if (!Number.isFinite(nextBudget) || nextBudget <= 0) {
+      toast.error("Please enter a valid target budget.");
+      return;
+    }
     setGroup({
       ...group,
       name: draftName.trim() || group.name,
       avatar_url: draftAvatar,
       targetDate: draftTargetDate || undefined,
     });
+    updateBudget(nextBudget);
+    updateUser({ monthlyBudget: nextBudget });
     setEditOpen(false);
   };
 
@@ -182,6 +194,19 @@ export function AppShell({
             />
             <p className="text-[11px] text-muted-foreground">
               Choose a date from today through the next 30 days, or clear it to keep the monthly target.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Target budget</label>
+            <Input
+              type="number"
+              min={1}
+              value={draftBudget}
+              onChange={(e) => setDraftBudget(e.target.value)}
+              placeholder="45000"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Leaders can update the shared target budget from here.
             </p>
           </div>
           <DialogFooter>

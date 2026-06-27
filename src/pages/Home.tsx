@@ -47,7 +47,7 @@ export function HomePage() {
     <div className="min-h-full bg-[var(--saj-bg)]">
       <header className="sticky top-0 z-20 border-b border-[0.5px] border-[var(--saj-border)] bg-[var(--saj-surface)] px-4 py-4">
         <div className="flex items-center gap-3">
-          <SajhaAvatar name={user?.name ?? "Ram Sharma"} size="md" />
+          <SajhaAvatar name={user?.name ?? "Ram Sharma"} src={user?.avatarImage} size="md" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium text-[var(--saj-text)]">
               Namaste, {user?.name.split(" ")[0] ?? "Ram"}

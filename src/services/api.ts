@@ -2,6 +2,8 @@
 // Mock backend persists users, groups, memberships, transactions, notifications
 // to localStorage so the app behaves like a real multi-user app.
 
+import { demoUsers } from "@/store/seed";
+
 export interface User {
   id: string;
   name: string;
@@ -58,6 +60,7 @@ export interface Notification {
   date: string;
   read: boolean;
   recipient_id?: string;
+  recipient_email?: string;
   meta?: {
     kind: "group_invite";
     group_id: string;
@@ -134,6 +137,19 @@ let notifications: Notification[] = load<Notification[]>(LS_NOTIFS, []);
 let currentUserId: string =
   (typeof window !== "undefined" && localStorage.getItem(LS_CURRENT_USER)) || "";
 
+function seedUsers(existing: User[]) {
+  const merged = [...existing];
+  for (const demo of demoUsers) {
+    if (merged.some((user) => user.email.toLowerCase() === demo.email.toLowerCase())) continue;
+    merged.push({
+      id: demo.id,
+      name: demo.name,
+      email: demo.email,
+    });
+  }
+  return merged;
+}
+
 const persistUsers = () => save(LS_USERS, users);
 const persistGroups = () => save(LS_GROUPS, groups);
 const persistMembers = () => save(LS_MEMBERS, memberships);
@@ -176,8 +192,20 @@ function refreshGroups() {
 }
 
 function refreshUsers() {
-  users = load<User[]>(LS_USERS, []);
+  users = seedUsers(load<User[]>(LS_USERS, []));
+  persistUsers();
   return users;
+}
+
+function normalizeInviteCode(value: string) {
+  const cleaned = value.trim().toUpperCase();
+  const match = cleaned.match(/SAJHA[-\s]*([A-Z0-9]{4})/);
+  if (match) return `SAJHA-${match[1]}`;
+  const compact = cleaned.replace(/[^A-Z0-9]/g, "");
+  if (compact.startsWith("SAJHA") && compact.length >= 10) {
+    return `SAJHA-${compact.slice(5, 9)}`;
+  }
+  return cleaned;
 }
 
 function genInvite(): string {
@@ -336,9 +364,8 @@ export const api = {
   async joinGroup(invite_code: string): Promise<Group> {
     if (USE_MOCK) {
       if (!currentUserId) throw new Error("Please sign in first.");
-      const g = refreshGroups().find(
-        (x) => x.invite_code.toUpperCase() === invite_code.trim().toUpperCase()
-      );
+      const nextCode = normalizeInviteCode(invite_code);
+      const g = refreshGroups().find((x) => normalizeInviteCode(x.invite_code) === nextCode);
       if (!g) throw new Error("Invalid invite code. Ask the leader to share it again.");
       if (g.solo) throw new Error("This is a solo fund and does not accept members.");
       const already = memberships.some(
@@ -364,9 +391,9 @@ export const api = {
       refreshUsers();
       const g = refreshGroups().find((x) => x.id === groupId);
       if (!g) throw new Error("Group not found");
-      const targetUser = users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
-      if (!targetUser) throw new Error("No registered user with that email.");
-      if (targetUser.id === currentUserId) throw new Error("You cannot invite yourself.");
+      const recipientEmail = email.trim().toLowerCase();
+      const targetUser = users.find((x) => x.email.toLowerCase() === recipientEmail);
+      if (targetUser?.id === currentUserId) throw new Error("You cannot invite yourself.");
       createNotification({
         id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
         type: "request",
@@ -374,7 +401,8 @@ export const api = {
         body: `${getCurrentUser()?.name ?? "A group leader"} invited you to join ${g.name}.`,
         date: iso(new Date()),
         read: false,
-        recipient_id: targetUser.id,
+        recipient_id: targetUser?.id,
+        recipient_email: recipientEmail,
         meta: {
           kind: "group_invite",
           group_id: g.id,
@@ -398,7 +426,11 @@ export const api = {
       const n = notifications.find((item) => item.id === notificationId);
       if (!n?.meta || n.meta.kind !== "group_invite") return delay(undefined);
       const targetUser = getCurrentUser();
-      const g = refreshGroups().find((group) => group.id === n.meta!.group_id || group.invite_code === n.meta!.invite_code);
+      const g = refreshGroups().find(
+        (group) =>
+          group.id === n.meta!.group_id ||
+          normalizeInviteCode(group.invite_code) === normalizeInviteCode(n.meta!.invite_code),
+      );
       if (g && targetUser) {
         const already = memberships.some((m) => m.group_id === g.id && m.user_id === targetUser.id);
         if (!already) {
@@ -657,7 +689,13 @@ export const api = {
   // ---------- NOTIFICATIONS ----------
   async getNotifications(): Promise<Notification[]> {
     if (USE_MOCK) {
-      const visible = notifications.filter((n) => !n.recipient_id || n.recipient_id === currentUserId);
+      const currentEmail = getCurrentUser()?.email?.toLowerCase();
+      const visible = notifications.filter(
+        (n) =>
+          !n.recipient_id ||
+          n.recipient_id === currentUserId ||
+          (!!currentEmail && n.recipient_email?.toLowerCase() === currentEmail),
+      );
       return delay([...visible]);
     }
     return http(`/api/notifications`);
@@ -665,8 +703,13 @@ export const api = {
 
   async markNotificationsRead(): Promise<void> {
     if (USE_MOCK) {
+      const currentEmail = getCurrentUser()?.email?.toLowerCase();
       notifications = notifications.map((n) =>
-        !n.recipient_id || n.recipient_id === currentUserId ? { ...n, read: true } : n,
+        !n.recipient_id ||
+        n.recipient_id === currentUserId ||
+        (!!currentEmail && n.recipient_email?.toLowerCase() === currentEmail)
+          ? { ...n, read: true }
+          : n,
       );
       persistNotifs();
       return delay(undefined);

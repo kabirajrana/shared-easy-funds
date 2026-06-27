@@ -62,6 +62,17 @@ function normalizeGroup(raw: any): Group | null {
   };
 }
 
+function normalizeInviteCode(value: string) {
+  const cleaned = value.trim().toUpperCase();
+  const match = cleaned.match(/SAJHA[-\s]*([A-Z0-9]{4})/);
+  if (match) return `SAJHA-${match[1]}`;
+  const compact = cleaned.replace(/[^A-Z0-9]/g, "");
+  if (compact.startsWith("SAJHA") && compact.length >= 10) {
+    return `SAJHA-${compact.slice(5, 9)}`;
+  }
+  return cleaned;
+}
+
 function loadWorkspace() {
   if (typeof window === "undefined") {
     return {
@@ -176,10 +187,10 @@ export const useGroupStore = create<GroupState>((set, get) => ({
     return group;
   },
   joinGroup: (inviteCode) => {
-    const nextCode = inviteCode.trim().toUpperCase();
+    const nextCode = normalizeInviteCode(inviteCode);
     const current = loadWorkspace();
     set(() => current);
-    const group = current.groups.find((entry) => entry.inviteCode === nextCode);
+    const group = current.groups.find((entry) => normalizeInviteCode(entry.inviteCode) === nextCode);
     if (!group) return undefined;
 
     const currentUser = useUserStore.getState().currentUser;
