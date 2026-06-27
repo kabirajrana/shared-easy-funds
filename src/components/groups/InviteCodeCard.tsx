@@ -5,9 +5,11 @@ import { Input } from "@/components/ui/input";
 export function InviteCodeCard({
   inviteCode,
   onAddMember,
+  isInviting = false,
 }: {
   inviteCode: string;
-  onAddMember?: (email: string) => void;
+  onAddMember?: (email: string) => Promise<void> | void;
+  isInviting?: boolean;
 }) {
   const [email, setEmail] = useState("");
 
@@ -46,13 +48,13 @@ export function InviteCodeCard({
         />
         <Button
           type="button"
-          onClick={() => {
-            onAddMember?.(email.trim());
+          onClick={async () => {
+            await onAddMember?.(email.trim());
             setEmail("");
           }}
-          disabled={!email.trim()}
+          disabled={!email.trim() || isInviting}
         >
-          Invite
+          {isInviting ? "Sending..." : "Invite"}
         </Button>
       </div>
     </div>

@@ -1,12 +1,13 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
-import { Bell, Home, ListChecks, BarChart3, Users, Plus, ArrowLeft, Upload } from "lucide-react";
+import { Home, ListChecks, BarChart3, Users, Plus, ArrowLeft, Upload } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "@/services/api";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
-import { useUserStore } from "@/store/useUserStore";
+import { useGroupStore } from "@/store/useGroupStore";
 import { toast } from "sonner";
+import { NotificationBell } from "@/components/NotificationBell";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -42,8 +43,8 @@ export function AppShell({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { user, group, role, setGroup, updateUser } = useSession();
-  const updateBudget = useUserStore((state) => state.updateBudget);
+  const { user, group, role, setGroup } = useSession();
+  const updateGroup = useGroupStore((state) => state.updateGroup);
   const isHome = pathname === "/";
   const canEdit = !back && isHome && role === "leader" && !!group;
 
@@ -51,7 +52,7 @@ export function AppShell({
   const [draftName, setDraftName] = useState(group?.name ?? "");
   const [draftAvatar, setDraftAvatar] = useState<string | undefined>(group?.avatar_url);
   const [draftTargetDate, setDraftTargetDate] = useState(group?.targetDate ?? "");
-  const [draftBudget, setDraftBudget] = useState(String(user?.monthlyBudget ?? 0));
+  const [draftBudget, setDraftBudget] = useState(String(group?.targetBudget ?? user?.monthlyBudget ?? 0));
   const fileRef = useRef<HTMLInputElement>(null);
   const today = new Date();
   const minTargetDate = toDateInputValue(today);
@@ -62,7 +63,7 @@ export function AppShell({
     setDraftName(group!.name);
     setDraftAvatar(group!.avatar_url);
     setDraftTargetDate(group!.targetDate ?? "");
-    setDraftBudget(String(user?.monthlyBudget ?? 0));
+    setDraftBudget(String(group!.targetBudget ?? user?.monthlyBudget ?? 0));
     setEditOpen(true);
   };
 
@@ -81,15 +82,22 @@ export function AppShell({
       toast.error("Please enter a valid target budget.");
       return;
     }
-    setGroup({
+    const nextGroup = {
       ...group,
       name: draftName.trim() || group.name,
       avatar_url: draftAvatar,
       targetDate: draftTargetDate || undefined,
+      targetBudget: nextBudget,
+    };
+    updateGroup(group.id, {
+      name: nextGroup.name,
+      avatar_url: nextGroup.avatar_url,
+      targetDate: nextGroup.targetDate,
+      targetBudget: nextGroup.targetBudget,
     });
-    updateBudget(nextBudget);
-    updateUser({ monthlyBudget: nextBudget });
+    setGroup(nextGroup);
     setEditOpen(false);
+    toast.success("Group budget saved");
   };
 
   const { data: notifs } = useQuery({
@@ -155,18 +163,7 @@ export function AppShell({
           <h1 className="truncate text-base font-semibold">{title ?? "Sajha"}</h1>
         </button>
         {rightSlot}
-        <Link
-          to="/notifications"
-          className="relative grid h-9 w-9 place-items-center rounded-full hover:bg-muted"
-          aria-label="Notifications"
-        >
-          <Bell className="h-5 w-5" />
-          {unread > 0 && (
-            <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-              {unread}
-            </span>
-          )}
-        </Link>
+        <NotificationBell />
       </header>
       </div>
 

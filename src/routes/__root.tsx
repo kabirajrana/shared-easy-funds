@@ -15,6 +15,7 @@ import { MobileFrame } from "@/components/layout/MobileFrame";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { applyTheme, getInitialTheme } from "@/lib/theme";
 import { useEffect } from "react";
+import { useNotificationStream } from "@/hooks/useNotificationStream";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   notFoundComponent: () => (
@@ -79,6 +80,7 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <SessionProvider>
+        <NotificationBridge />
         <MobileFrame>
           <main className="flex-1 overflow-y-auto">
             <Outlet />
@@ -89,4 +91,9 @@ function RootComponent() {
       </SessionProvider>
     </QueryClientProvider>
   );
+}
+
+function NotificationBridge() {
+  useNotificationStream();
+  return null;
 }

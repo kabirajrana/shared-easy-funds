@@ -54,21 +54,44 @@ export interface Transaction {
 
 export interface Notification {
   id: string;
-  type: "request" | "approval" | "rejection" | "summary" | "low_balance";
+  type:
+    | "group_invite"
+    | "invite_accepted"
+    | "invite_declined"
+    | "request"
+    | "approval"
+    | "rejection"
+    | "summary"
+    | "low_balance";
   title: string;
   body: string;
+  message?: string;
   date: string;
+  created_at?: string;
   read: boolean;
+  is_read?: boolean;
   recipient_id?: string;
   recipient_email?: string;
+  user_id?: string;
+  user_email?: string;
   meta?: {
     kind: "group_invite";
+    invitationId: string;
     group_id: string;
     group_name: string;
     invite_code: string;
     sender_id?: string;
     sender_name?: string;
     status?: "pending" | "accepted" | "rejected";
+  };
+  data?: {
+    invitationId?: string;
+    groupId?: string;
+    groupName?: string;
+    inviterName?: string;
+    inviteCode?: string;
+    leaderId?: string;
+    status?: "pending" | "accepted" | "declined" | "expired";
   };
 }
 
@@ -103,6 +126,8 @@ const LS_INVITES = "sajha.group_invitations";
 const LS_TXS = "sajha.transactions";
 const LS_NOTIFS = "sajha.notifications";
 const LS_CURRENT_USER = "sajha.currentUserId";
+const NOTIFICATION_EVENT = "sajha:notification";
+const NOTIFICATIONS_UPDATED_EVENT = "sajha:notifications-updated";
 
 type StoredGroupLike = Partial<Group> & {
   inviteCode?: string;
@@ -146,6 +171,21 @@ type StoredInvitationLike = Partial<GroupInvitation> & {
   updated_at?: string;
 };
 
+type StoredNotificationLike = Partial<Notification> & {
+  message?: string;
+  created_at?: string;
+  is_read?: boolean;
+  data?: Notification["data"];
+  meta?: Notification["meta"];
+  recipient_id?: string;
+  recipient_email?: string;
+  user_id?: string;
+  user_email?: string;
+  body?: string;
+  date?: string;
+  read?: boolean;
+};
+
 function load<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
@@ -167,7 +207,7 @@ let groups: Group[] = load<Group[]>(LS_GROUPS, []);
 let memberships: Membership[] = load<Membership[]>(LS_MEMBERS, []);
 let invitations: GroupInvitation[] = load<GroupInvitation[]>(LS_INVITES, []);
 let transactions: Transaction[] = load<Transaction[]>(LS_TXS, []);
-let notifications: Notification[] = load<Notification[]>(LS_NOTIFS, []);
+let notifications: Notification[] = loadNotificationsSnapshot();
 let currentUserId: string =
   (typeof window !== "undefined" && localStorage.getItem(LS_CURRENT_USER)) || "";
 
@@ -196,8 +236,22 @@ const persistNotifs = () => save(LS_NOTIFS, notifications);
 
 function emitNotificationsChanged() {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new Event("sajha:notifications-updated"));
-  notificationChannel?.postMessage({ type: "notifications:updated" });
+  window.dispatchEvent(new Event(NOTIFICATIONS_UPDATED_EVENT));
+  getOrCreateNotificationChannel()?.postMessage({ type: NOTIFICATIONS_UPDATED_EVENT });
+}
+
+function emitNotification(notification: Notification) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(NOTIFICATION_EVENT, { detail: notification }));
+  getOrCreateNotificationChannel()?.postMessage({ type: NOTIFICATION_EVENT, notification });
+}
+
+function getOrCreateNotificationChannel() {
+  if (typeof window === "undefined" || !("BroadcastChannel" in window)) return null;
+  if (!notificationChannel) {
+    notificationChannel = new BroadcastChannel("sajha:notifications");
+  }
+  return notificationChannel;
 }
 
 function setupNotificationSync(onChange: () => void) {
@@ -207,7 +261,7 @@ function setupNotificationSync(onChange: () => void) {
   if ("BroadcastChannel" in window) {
     notificationChannel = new BroadcastChannel("sajha:notifications");
     notificationChannel.onmessage = (event) => {
-      if (event.data?.type === "notifications:updated") onChange();
+      if (event.data?.type === NOTIFICATIONS_UPDATED_EVENT || event.data?.type === NOTIFICATION_EVENT) onChange();
     };
   }
 
@@ -271,6 +325,59 @@ function normalizeInvitation(raw: StoredInvitationLike | unknown): GroupInvitati
   };
 }
 
+function normalizeNotification(raw: StoredNotificationLike | unknown): Notification | null {
+  if (!raw || typeof raw !== "object") return null;
+  const note = raw as StoredNotificationLike;
+  const id = String(note.id ?? `n_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`);
+  const body = String(note.body ?? note.message ?? "");
+  const date = String(note.date ?? note.created_at ?? new Date().toISOString());
+  const read = typeof note.read === "boolean" ? note.read : !!note.is_read;
+
+  const meta = note.meta?.kind === "group_invite"
+    ? {
+        kind: "group_invite" as const,
+        invitationId: String(note.meta.invitationId ?? note.data?.invitationId ?? note.data?.groupId ?? id),
+        group_id: String(note.meta.group_id ?? note.data?.groupId ?? ""),
+        group_name: String(note.meta.group_name ?? note.data?.groupName ?? "Group"),
+        invite_code: String(note.meta.invite_code ?? note.data?.inviteCode ?? ""),
+        sender_id: note.meta.sender_id ?? note.data?.leaderId,
+        sender_name: note.meta.sender_name ?? note.data?.inviterName,
+        status:
+          note.meta.status === "accepted" || note.meta.status === "rejected" || note.meta.status === "pending"
+            ? note.meta.status
+            : "pending",
+      }
+    : note.meta;
+
+  return {
+    id,
+    type:
+      note.type === "group_invite" ||
+      note.type === "invite_accepted" ||
+      note.type === "invite_declined" ||
+      note.type === "request" ||
+      note.type === "approval" ||
+      note.type === "rejection" ||
+      note.type === "summary" ||
+      note.type === "low_balance"
+        ? note.type
+        : "request",
+    title: String(note.title ?? "Notification"),
+    body,
+    message: String(note.message ?? body),
+    date,
+    created_at: String(note.created_at ?? date),
+    read,
+    is_read: typeof note.is_read === "boolean" ? note.is_read : read,
+    recipient_id: note.recipient_id ?? note.user_id,
+    recipient_email: note.recipient_email ?? note.user_email,
+    user_id: note.user_id ?? note.recipient_id,
+    user_email: note.user_email ?? note.recipient_email,
+    meta,
+    data: note.data,
+  };
+}
+
 function loadGroupsSnapshot(): Group[] {
   const rawGroups = load<unknown[]>(LS_GROUPS, []);
   return rawGroups.map(normalizeGroup).filter(Boolean) as Group[];
@@ -279,6 +386,11 @@ function loadGroupsSnapshot(): Group[] {
 function loadInvitationsSnapshot(): GroupInvitation[] {
   const rawInvites = load<unknown[]>(LS_INVITES, []);
   return rawInvites.map(normalizeInvitation).filter(Boolean) as GroupInvitation[];
+}
+
+function loadNotificationsSnapshot(): Notification[] {
+  const rawNotifs = load<unknown[]>(LS_NOTIFS, []);
+  return rawNotifs.map(normalizeNotification).filter(Boolean) as Notification[];
 }
 
 function refreshGroups() {
@@ -290,6 +402,12 @@ function refreshInvitations() {
   invitations = loadInvitationsSnapshot();
   persistInvites();
   return invitations;
+}
+
+function refreshNotifications() {
+  notifications = loadNotificationsSnapshot();
+  persistNotifs();
+  return notifications;
 }
 
 function refreshUsers() {
@@ -321,9 +439,21 @@ function getCurrentUser() {
 }
 
 function createNotification(notification: Notification) {
-  notifications.unshift(notification);
+  const normalized = normalizeNotification({
+    ...notification,
+    read: typeof notification.read === "boolean" ? notification.read : false,
+    is_read: typeof notification.is_read === "boolean" ? notification.is_read : false,
+    body: notification.body ?? notification.message ?? "",
+    message: notification.message ?? notification.body ?? "",
+    date: notification.date ?? new Date().toISOString(),
+    created_at: notification.created_at ?? notification.date ?? new Date().toISOString(),
+  });
+  if (!normalized) return null;
+  notifications.unshift(normalized);
   persistNotifs();
+  emitNotification(normalized);
   emitNotificationsChanged();
+  return normalized;
 }
 
 function createInvitation(input: {
@@ -331,7 +461,16 @@ function createInvitation(input: {
   invitedBy: string;
   invitedEmail: string;
   invitedUserId?: string;
+  token?: string;
 }) {
+  const existing = invitations.find(
+    (invite) =>
+      invite.group_id === input.groupId &&
+      invite.invited_email.toLowerCase() === input.invitedEmail.toLowerCase() &&
+      invite.status === "pending",
+  );
+  if (existing) return existing;
+
   const invitation: GroupInvitation = {
     id: `inv_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
     group_id: input.groupId,
@@ -339,7 +478,10 @@ function createInvitation(input: {
     invited_email: input.invitedEmail,
     invited_user_id: input.invitedUserId,
     status: "pending",
-    token: refreshGroups().find((group) => group.id === input.groupId)?.invite_code ?? genInvite(),
+    token:
+      input.token ??
+      refreshGroups().find((group) => group.id === input.groupId)?.invite_code ??
+      genInvite(),
     expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     created_at: iso(new Date()),
     updated_at: iso(new Date()),
@@ -349,6 +491,40 @@ function createInvitation(input: {
   persistInvites();
   emitNotificationsChanged();
   return invitation;
+}
+
+function ensureGroupMembership(groupId: string, userId: string) {
+  const already = memberships.some((m) => m.group_id === groupId && m.user_id === userId);
+  if (already) return false;
+
+  memberships.push({
+    user_id: userId,
+    group_id: groupId,
+    role: "member",
+    joined_at: iso(new Date()),
+  });
+  persistMembers();
+  return true;
+}
+
+function getInvitationByToken(token: string) {
+  const nextToken = normalizeInviteCode(token);
+  return (
+    invitations.find(
+      (invite) =>
+        invite.status === "pending" &&
+        invite.expires_at > new Date().toISOString() &&
+        normalizeInviteCode(invite.token) === nextToken,
+    ) ?? null
+  );
+}
+
+function getNotificationVisibilityPredicate() {
+  const currentEmail = getCurrentUser()?.email?.toLowerCase();
+  return (n: Notification) =>
+    !n.recipient_id ||
+    n.recipient_id === currentUserId ||
+    (!!currentEmail && n.recipient_email?.toLowerCase() === currentEmail);
 }
 
 async function hashPassword(pw: string): Promise<string> {
@@ -458,32 +634,48 @@ export const api = {
         const sender = getCurrentUser();
         for (const email of opts.memberEmails) {
           const targetUser = users.find((x) => x.email.toLowerCase() === email.toLowerCase());
-          if (!targetUser || targetUser.id === currentUserId) continue;
+          if (targetUser?.id === currentUserId) continue;
           const invitation = createInvitation({
             groupId: g.id,
             invitedBy: sender?.id ?? currentUserId,
-            invitedEmail: targetUser.email,
-            invitedUserId: targetUser.id,
+            invitedEmail: targetUser?.email ?? email,
+            invitedUserId: targetUser?.id,
+            token: g.invite_code,
           });
-          createNotification({
-            id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
-            type: "request",
-            title: `Group invite from ${g.name}`,
-            body: `${sender?.name ?? "A group leader"} invited you to join ${g.name}.`,
-            date: iso(new Date()),
-            read: false,
-            recipient_id: targetUser.id,
-            meta: {
-              kind: "group_invite",
-              invitationId: invitation.id,
-              group_id: g.id,
-              group_name: g.name,
-              invite_code: g.invite_code,
-              sender_id: sender?.id,
-              sender_name: sender?.name,
-              status: "pending",
-            },
-          });
+          if (targetUser) {
+            createNotification({
+              id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+              type: "group_invite",
+              title: `Group invite from ${g.name}`,
+              body: `${sender?.name ?? "A group leader"} invited you to join ${g.name}.`,
+              message: `${sender?.name ?? "A group leader"} invited you to join ${g.name}.`,
+              date: iso(new Date()),
+              created_at: iso(new Date()),
+              read: false,
+              is_read: false,
+              recipient_id: targetUser.id,
+              recipient_email: targetUser.email,
+              data: {
+                invitationId: invitation.id,
+                groupId: g.id,
+                groupName: g.name,
+                inviterName: sender?.name,
+                inviteCode: g.invite_code,
+                leaderId: sender?.id ?? currentUserId,
+                status: "pending",
+              },
+              meta: {
+                kind: "group_invite",
+                invitationId: invitation.id,
+                group_id: g.id,
+                group_name: g.name,
+                invite_code: g.invite_code,
+                sender_id: sender?.id,
+                sender_name: sender?.name,
+                status: "pending",
+              },
+            });
+          }
         }
       }
 
@@ -499,20 +691,17 @@ export const api = {
     if (USE_MOCK) {
       if (!currentUserId) throw new Error("Please sign in first.");
       const nextCode = normalizeInviteCode(invite_code);
-      const g = refreshGroups().find((x) => normalizeInviteCode(x.invite_code) === nextCode);
+      const invitation = getInvitationByToken(nextCode);
+      const g =
+        (invitation ? refreshGroups().find((x) => x.id === invitation.group_id) : null) ??
+        refreshGroups().find((x) => normalizeInviteCode(x.invite_code) === nextCode);
       if (!g) throw new Error("Invalid invite code. Ask the leader to share it again.");
       if (g.solo) throw new Error("This is a solo fund and does not accept members.");
-      const already = memberships.some(
-        (m) => m.group_id === g.id && m.user_id === currentUserId
-      );
-      if (!already) {
-        memberships.push({
-          user_id: currentUserId,
-          group_id: g.id,
-          role: "member",
-          joined_at: iso(new Date()),
-        });
-        persistMembers();
+      ensureGroupMembership(g.id, currentUserId);
+      if (invitation) {
+        invitation.status = "accepted";
+        invitation.updated_at = iso(new Date());
+        persistInvites();
       }
       return delay(g);
     }
@@ -533,30 +722,45 @@ export const api = {
         invitedBy: currentUserId,
         invitedEmail: recipientEmail,
         invitedUserId: targetUser?.id,
+        token: g.invite_code,
       });
-      createNotification({
-        id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
-        type: "request",
-        title: `Group invite from ${g.name}`,
-        body: `${getCurrentUser()?.name ?? "A group leader"} invited you to join ${g.name}.`,
-        date: iso(new Date()),
-        read: false,
-        recipient_id: targetUser?.id,
-        recipient_email: recipientEmail,
-        meta: {
-          kind: "group_invite",
-          invitationId: invitation.id,
-          group_id: g.id,
-          group_name: g.name,
-          invite_code: g.invite_code,
-          sender_id: currentUserId,
-          sender_name: getCurrentUser()?.name,
-          status: "pending",
-        },
-      });
+      if (targetUser) {
+        createNotification({
+          id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+          type: "group_invite",
+          title: `Group invite from ${g.name}`,
+          body: `${getCurrentUser()?.name ?? "A group leader"} invited you to join ${g.name}.`,
+          message: `${getCurrentUser()?.name ?? "A group leader"} invited you to join ${g.name}.`,
+          date: iso(new Date()),
+          created_at: iso(new Date()),
+          read: false,
+          is_read: false,
+          recipient_id: targetUser.id,
+          recipient_email: recipientEmail,
+          data: {
+            invitationId: invitation.id,
+            groupId: g.id,
+            groupName: g.name,
+            inviterName: getCurrentUser()?.name,
+            inviteCode: g.invite_code,
+            leaderId: currentUserId,
+            status: "pending",
+          },
+          meta: {
+            kind: "group_invite",
+            invitationId: invitation.id,
+            group_id: g.id,
+            group_name: g.name,
+            invite_code: g.invite_code,
+            sender_id: currentUserId,
+            sender_name: getCurrentUser()?.name,
+            status: "pending",
+          },
+        });
+      }
       return delay(undefined);
     }
-    await http(`/api/groups/${groupId}/invites`, {
+    await http(`/api/groups/${groupId}/invite`, {
       method: "POST",
       body: JSON.stringify({ email }),
     });
@@ -564,49 +768,67 @@ export const api = {
 
   async acceptGroupInvite(notificationId: string): Promise<void> {
     if (USE_MOCK) {
+      refreshNotifications();
       const n = notifications.find((item) => item.id === notificationId);
       if (!n?.meta || n.meta.kind !== "group_invite") return delay(undefined);
       const targetUser = getCurrentUser();
+      if (!targetUser) throw new Error("Please sign in first.");
+      const invitation = invitations.find((item) => item.id === n.meta!.invitationId);
       const g = refreshGroups().find(
         (group) =>
           group.id === n.meta!.group_id ||
           normalizeInviteCode(group.invite_code) === normalizeInviteCode(n.meta!.invite_code),
       );
-      if (g && targetUser) {
-        const already = memberships.some((m) => m.group_id === g.id && m.user_id === targetUser.id);
-        if (!already) {
-          memberships.push({
-            user_id: targetUser.id,
-            group_id: g.id,
-            role: "member",
-            joined_at: iso(new Date()),
-          });
-          persistMembers();
-        }
-        if (n.meta.sender_id) {
-          createNotification({
-            id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
-            type: "approval",
-            title: `${targetUser.name} accepted your invite`,
-            body: `${targetUser.name} joined ${g.name}.`,
-            date: iso(new Date()),
-            read: false,
-            recipient_id: n.meta.sender_id,
-            meta: {
-              kind: "group_invite",
-              group_id: g.id,
-              group_name: g.name,
-              invite_code: g.invite_code,
-              sender_id: targetUser.id,
-              sender_name: targetUser.name,
-              status: "accepted",
-            },
-          });
-        }
+      if (!g) throw new Error("Invite group could not be found.");
+      if (invitation && invitation.status !== "pending") {
+        throw new Error("This invite has already been handled.");
+      }
+      ensureGroupMembership(g.id, targetUser.id);
+      if (invitation) {
+        invitation.status = "accepted";
+        invitation.invited_user_id = targetUser.id;
+        invitation.updated_at = iso(new Date());
+        persistInvites();
       }
       n.read = true;
+      n.is_read = true;
       n.meta.status = "accepted";
+      n.data = { ...(n.data ?? {}), status: "accepted" };
       persistNotifs();
+      emitNotificationsChanged();
+      if (n.meta.sender_id) {
+        createNotification({
+          id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+          type: "invite_accepted",
+          title: `${targetUser.name} accepted your invite`,
+          body: `${targetUser.name} joined ${g.name}.`,
+          message: `${targetUser.name} joined ${g.name}.`,
+          date: iso(new Date()),
+          created_at: iso(new Date()),
+          read: false,
+          is_read: false,
+          recipient_id: n.meta.sender_id,
+          data: {
+            invitationId: n.meta.invitationId,
+            groupId: g.id,
+            groupName: g.name,
+            inviterName: targetUser.name,
+            inviteCode: g.invite_code,
+            leaderId: targetUser.id,
+            status: "accepted",
+          },
+          meta: {
+            kind: "group_invite",
+            invitationId: n.meta.invitationId,
+            group_id: g.id,
+            group_name: g.name,
+            invite_code: g.invite_code,
+            sender_id: targetUser.id,
+            sender_name: targetUser.name,
+            status: "accepted",
+          },
+        });
+      }
       return delay(undefined);
     }
     await http(`/api/notifications/${notificationId}/accept`, { method: "POST" });
@@ -614,33 +836,59 @@ export const api = {
 
   async declineGroupInvite(notificationId: string): Promise<void> {
     if (USE_MOCK) {
+      refreshNotifications();
       const n = notifications.find((item) => item.id === notificationId);
       if (!n?.meta || n.meta.kind !== "group_invite") return delay(undefined);
       const targetUser = getCurrentUser();
-      if (n.meta.sender_id && targetUser) {
+      if (!targetUser) throw new Error("Please sign in first.");
+      const invitation = invitations.find((item) => item.id === n.meta!.invitationId);
+      if (invitation && invitation.status !== "pending") {
+        throw new Error("This invite has already been handled.");
+      }
+      if (invitation) {
+        invitation.status = "declined";
+        invitation.updated_at = iso(new Date());
+        persistInvites();
+      }
+      n.read = true;
+      n.is_read = true;
+      n.meta.status = "rejected";
+      n.data = { ...(n.data ?? {}), status: "declined" };
+      persistNotifs();
+      emitNotificationsChanged();
+      if (n.meta.sender_id) {
         createNotification({
           id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
-          type: "rejection",
+          type: "invite_declined",
           title: `${targetUser.name} declined your invite`,
           body: `${targetUser.name} did not join ${n.meta.group_name}.`,
+          message: `${targetUser.name} did not join ${n.meta.group_name}.`,
           date: iso(new Date()),
+          created_at: iso(new Date()),
           read: false,
+          is_read: false,
           recipient_id: n.meta.sender_id,
+          data: {
+            invitationId: n.meta.invitationId,
+            groupId: n.meta.group_id,
+            groupName: n.meta.group_name,
+            inviterName: targetUser.name,
+            inviteCode: n.meta.invite_code,
+            leaderId: targetUser.id,
+            status: "declined",
+          },
           meta: {
             kind: "group_invite",
+            invitationId: n.meta.invitationId,
             group_id: n.meta.group_id,
             group_name: n.meta.group_name,
             invite_code: n.meta.invite_code,
-            sender_id: targetUser?.id,
-            sender_name: targetUser?.name,
+            sender_id: targetUser.id,
+            sender_name: targetUser.name,
             status: "rejected",
           },
         });
       }
-      n.read = true;
-      n.meta.status = "rejected";
-      persistNotifs();
-      emitNotificationsChanged();
       return delay(undefined);
     }
     await http(`/api/notifications/${notificationId}/decline`, { method: "POST" });
@@ -882,35 +1130,59 @@ export const api = {
   },
 
   // ---------- NOTIFICATIONS ----------
-  async getNotifications(): Promise<Notification[]> {
+  async getNotifications(options?: { unreadOnly?: boolean }): Promise<Notification[]> {
     if (USE_MOCK) {
-      const currentEmail = getCurrentUser()?.email?.toLowerCase();
-      const visible = notifications.filter(
-        (n) =>
-          !n.recipient_id ||
-          n.recipient_id === currentUserId ||
-          (!!currentEmail && n.recipient_email?.toLowerCase() === currentEmail),
-      );
+      const visible = refreshNotifications()
+        .filter(getNotificationVisibilityPredicate())
+        .sort((a, b) => +new Date(b.date) - +new Date(a.date))
+        .filter((n) => (options?.unreadOnly ? !n.read : true));
       return delay([...visible]);
     }
-    return http(`/api/notifications`);
+    const suffix = options?.unreadOnly ? "?unread=true" : "";
+    return http(`/api/notifications${suffix}`);
   },
 
   async markNotificationsRead(): Promise<void> {
+    return api.markAllNotificationsRead();
+  },
+
+  async markNotificationRead(notificationId: string): Promise<void> {
     if (USE_MOCK) {
-      const currentEmail = getCurrentUser()?.email?.toLowerCase();
+      const predicate = getNotificationVisibilityPredicate();
+      notifications = notifications.map((n) => (n.id === notificationId && predicate(n) ? { ...n, read: true, is_read: true } : n));
+      persistNotifs();
+      emitNotificationsChanged();
+      return delay(undefined);
+    }
+    await http(`/api/notifications/${notificationId}/read`, { method: "PATCH" });
+  },
+
+  async markAllNotificationsRead(): Promise<void> {
+    if (USE_MOCK) {
+      const predicate = getNotificationVisibilityPredicate();
       notifications = notifications.map((n) =>
-        !n.recipient_id ||
-        n.recipient_id === currentUserId ||
-        (!!currentEmail && n.recipient_email?.toLowerCase() === currentEmail)
-          ? { ...n, read: true }
-          : n,
+        predicate(n) ? { ...n, read: true, is_read: true } : n,
       );
       persistNotifs();
       emitNotificationsChanged();
       return delay(undefined);
     }
-    await http(`/api/notifications/read`, { method: "POST" });
+    await http(`/api/notifications/read-all`, { method: "PATCH" });
+  },
+
+  async deleteGroupArtifacts(groupId: string): Promise<void> {
+    if (USE_MOCK) {
+      invitations = invitations.filter((invite) => invite.group_id !== groupId);
+      notifications = notifications.filter((notification) => {
+        const notificationGroupId = notification.data?.groupId ?? notification.meta?.group_id;
+        return notificationGroupId !== groupId;
+      });
+      persistInvites();
+      persistNotifs();
+      emitNotificationsChanged();
+      return delay(undefined);
+    }
+    await http(`/api/groups/${groupId}`, { method: "DELETE" });
   },
 
   // helpers

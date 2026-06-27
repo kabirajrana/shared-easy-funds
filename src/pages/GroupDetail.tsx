@@ -1,5 +1,17 @@
-import { Link } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { ExpenseItem } from "@/components/expenses/ExpenseItem";
 import { InviteCodeCard } from "@/components/groups/InviteCodeCard";
 import { PaymentQRCard } from "@/components/groups/PaymentQRCard";
@@ -14,6 +26,7 @@ import { useExpenseStore } from "@/store/useExpenseStore";
 import { useGroupStore } from "@/store/useGroupStore";
 import { api } from "@/services/api";
 import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
 
 function formatTargetDay(day?: number) {
   if (!day) return "No target day set";
@@ -24,17 +37,77 @@ function formatTargetDay(day?: number) {
 
 export function GroupDetailPage({ groupId }: { groupId: string }) {
   const [tab, setTab] = useState<"expenses" | "balances">("expenses");
+  const [draftTargetBudget, setDraftTargetBudget] = useState("");
   const qrInputRef = useRef<HTMLInputElement>(null);
-  const { user } = useSession();
+  const navigate = useNavigate();
+  const { user, setGroup } = useSession();
+  const queryClient = useQueryClient();
   const group = useGroupStore((state) => state.groups.find((entry) => entry.id === groupId));
   const groupMembers = useGroupStore((state) => state.groupMembers);
   const updateGroup = useGroupStore((state) => state.updateGroup);
+  const deleteGroup = useGroupStore((state) => state.deleteGroup);
   const expenses = useExpenseStore((state) => state.expenses);
+  const deleteGroupExpenses = useExpenseStore((state) => state.deleteGroupExpenses);
   const members = group ? groupMembers[group.id] ?? [] : [];
+  const canEditBudget = !!group && group.leaderId === user?.id;
   const groupExpenses = useMemo(
     () => expenses.filter((expense) => expense.groupId === groupId),
     [expenses, groupId],
   );
+  const canDeleteGroup = canEditBudget;
+
+  useEffect(() => {
+    setDraftTargetBudget(String(group?.targetBudget ?? ""));
+  }, [group?.targetBudget]);
+
+  const saveTargetBudget = useMutation({
+    mutationFn: async () => {
+      if (!group || !canEditBudget) throw new Error("Only the team leader can edit the group budget.");
+      const nextBudget = Number(draftTargetBudget);
+      if (!Number.isFinite(nextBudget) || nextBudget <= 0) {
+        throw new Error("Please enter a valid target budget.");
+      }
+      updateGroup(group.id, { targetBudget: nextBudget });
+      setGroup({ ...group, targetBudget: nextBudget });
+      return nextBudget;
+    },
+    onSuccess: () => {
+      toast.success("Target budget updated");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Could not update target budget");
+    },
+  });
+
+  const inviteMember = useMutation({
+    mutationFn: async (email: string) => {
+      await api.sendGroupInvite(groupId, email);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      toast.success("Invitation sent! They will be notified in-app.");
+    },
+    onError: (error: Error) => {
+      toast.error(error?.message ?? "Could not send invite");
+    },
+  });
+
+  const deleteGroupMutation = useMutation({
+    mutationFn: async () => {
+      await api.deleteGroupArtifacts(groupId);
+      deleteGroupExpenses(groupId);
+      deleteGroup(groupId);
+    },
+    onSuccess: async () => {
+      setGroup(null);
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      toast.success("Group deleted");
+      navigate({ to: "/groups" });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Could not delete group");
+    },
+  });
 
   const balanceEdges = useMemo(() => {
     if (!group) return [];
@@ -103,20 +176,49 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
     <div className="pb-20">
       <PageHeader
         title={group.name}
-        rightSlot={<Badge variant={group.balance === 0 ? "settled" : "owed"}>{group.balance === 0 ? "Settled up" : "Owed"}</Badge>}
+        rightSlot={
+          <div className="flex items-center gap-2">
+            <Badge variant={group.balance === 0 ? "settled" : "owed"}>
+              {group.balance === 0 ? "Settled up" : "Owed"}
+            </Badge>
+            {canDeleteGroup ? (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button type="button" variant="destructive" size="sm" className="h-8 rounded-full px-3">
+                    Delete
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this group?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will remove the group, its members, and its expenses from your workspace.
+                      The action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => deleteGroupMutation.mutate()}
+                      className="bg-[var(--saj-red)] text-white hover:bg-[var(--saj-red)]/90"
+                    >
+                      {deleteGroupMutation.isPending ? "Deleting..." : "Delete group"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : null}
+          </div>
+        }
       />
 
       <div className="space-y-3 px-4">
         <InviteCodeCard
           inviteCode={group.inviteCode}
+          isInviting={inviteMember.isPending}
           onAddMember={async (email) => {
             if (!email) return;
-            try {
-              await api.sendGroupInvite(group.id, email);
-              toast.success("Join request sent");
-            } catch (error: any) {
-              toast.error(error?.message ?? "Could not send invite");
-            }
+            await inviteMember.mutateAsync(email);
           }}
         />
         <div className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
@@ -139,17 +241,42 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
             </>
           )}
         </div>
-        {typeof group.targetBudget === "number" ? (
-          <div className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-            <p className="text-[11px] text-[var(--saj-muted)]">Target budget</p>
-            <p className="mt-1 text-[14px] font-medium text-[var(--saj-text)]">
-              {formatCurrency(group.targetBudget)}
-            </p>
-            <p className="mt-1 text-[12px] text-[var(--saj-muted)]">
-              This is the shared budget goal the group leader sets when creating the group.
-            </p>
+        <div className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] text-[var(--saj-muted)]">Target budget</p>
+              <p className="mt-1 text-[14px] font-medium text-[var(--saj-text)]">
+                {typeof group.targetBudget === "number" ? formatCurrency(group.targetBudget) : "Not set"}
+              </p>
+            </div>
+            {canEditBudget ? (
+              <span className="rounded-full bg-[var(--saj-green-pale)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--saj-green)]">
+                Leader only
+              </span>
+            ) : null}
           </div>
-        ) : null}
+          <p className="mt-1 text-[12px] text-[var(--saj-muted)]">
+            This shared amount is visible everywhere in the group workspace.
+          </p>
+          {canEditBudget ? (
+            <div className="mt-3 flex gap-2">
+              <Input
+                type="number"
+                min={1}
+                value={draftTargetBudget}
+                onChange={(event) => setDraftTargetBudget(event.target.value)}
+              />
+              <Button
+                type="button"
+                onClick={() => saveTargetBudget.mutate()}
+                disabled={saveTargetBudget.isPending}
+                className="shrink-0"
+              >
+                {saveTargetBudget.isPending ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          ) : null}
+        </div>
         <PaymentQRCard paymentQR={group.paymentQR} canEdit={canEditQr} onAttach={onAttachQr} onShare={onShareQr} />
         {canEditQr ? (
           <input

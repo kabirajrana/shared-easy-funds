@@ -13,6 +13,7 @@ type GroupState = {
   activeGroupId: string;
   hydrateWorkspace: () => void;
   resetWorkspace: () => void;
+  deleteGroup: (groupId: string) => void;
   createGroup: (input: {
     name: string;
     avatarColor: string;
@@ -124,6 +125,18 @@ export const useGroupStore = create<GroupState>((set, get) => ({
   resetWorkspace: () =>
     set(() => {
       const next = { groups: [], groupMembers: {}, activeGroupId: "" };
+      persistWorkspace(next);
+      return next;
+    }),
+  deleteGroup: (groupId) =>
+    set((state) => {
+      const next = {
+        groups: state.groups.filter((group) => group.id !== groupId),
+        groupMembers: Object.fromEntries(
+          Object.entries(state.groupMembers).filter(([key]) => key !== groupId),
+        ),
+        activeGroupId: state.activeGroupId === groupId ? "" : state.activeGroupId,
+      };
       persistWorkspace(next);
       return next;
     }),

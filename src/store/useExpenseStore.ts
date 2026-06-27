@@ -19,6 +19,7 @@ type ExpenseState = {
   expenses: Expense[];
   addExpense: (expense: Expense) => void;
   deleteExpense: (id: string) => void;
+  deleteGroupExpenses: (groupId: string) => void;
   getGroupExpenses: (groupId: string) => Expense[];
   getPersonalExpenses: (userId: string) => Expense[];
   getMonthlySummary: (userId: string) => MonthlySummary;
@@ -88,6 +89,12 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
   deleteExpense: (id) =>
     set((state) => {
       const next = { expenses: state.expenses.filter((expense) => expense.id !== id) };
+      persistExpenses(next.expenses);
+      return next;
+    }),
+  deleteGroupExpenses: (groupId) =>
+    set((state) => {
+      const next = { expenses: state.expenses.filter((expense) => expense.groupId !== groupId) };
       persistExpenses(next.expenses);
       return next;
     }),

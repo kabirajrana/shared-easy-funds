@@ -18,20 +18,23 @@ export function HomePage() {
   const groups = useGroupStore((state) => state.groups);
   const expenses = useExpenseStore((state) => state.expenses);
   const groupMembers = useGroupStore((state) => state.groupMembers);
+  const activeGroup = groups.find((group) => group.id === activeGroupId);
   const hasWorkspace = groups.length > 0 || expenses.length > 0;
   const summary = useMemo(() => {
     const userId = user?.id ?? "u1";
-    const relevant = expenses.filter(
-      (expense) => expense.paidById === userId || expense.splits.some((split) => split.userId === userId),
-    );
+    const relevant = activeGroup
+      ? expenses.filter((expense) => expense.groupId === activeGroup.id)
+      : expenses.filter(
+          (expense) => expense.paidById === userId || expense.splits.some((split) => split.userId === userId),
+        );
     const totalSpent = relevant.reduce((sum, expense) => sum + expense.amount, 0);
-    const budget = user?.monthlyBudget ?? 0;
+    const budget = activeGroup?.targetBudget ?? user?.monthlyBudget ?? 0;
     return {
       totalSpent,
       budget,
       budgetUsed: budget > 0 ? Math.round((totalSpent / budget) * 100) : 0,
     };
-  }, [expenses, user?.id]);
+  }, [activeGroup, expenses, user?.id, user?.monthlyBudget]);
   const members = groupMembers[activeGroupId] ?? EMPTY_MEMBERS;
 
   const recentExpenses = useMemo(

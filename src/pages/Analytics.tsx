@@ -17,11 +17,14 @@ import { Button } from "@/components/ui/button";
 import type { ExpenseCategory } from "@/types";
 import { exportCsv, exportExcel } from "@/utils/export";
 import { useExpenseStore } from "@/store/useExpenseStore";
+import { useGroupStore } from "@/store/useGroupStore";
 import { useSession } from "@/lib/session";
 
 export function AnalyticsPage() {
   const { user } = useSession();
   const expenses = useExpenseStore((state) => state.expenses);
+  const groups = useGroupStore((state) => state.groups);
+  const activeGroupId = useGroupStore((state) => state.activeGroupId);
   const [monthIndex, setMonthIndex] = useState(() => new Date().getMonth());
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const today = new Date();
@@ -31,9 +34,16 @@ export function AnalyticsPage() {
     year: "numeric",
   });
   const userId = user?.id ?? "";
-  const budget = user?.monthlyBudget ?? 0;
+  const activeGroup = groups.find((group) => group.id === activeGroupId);
+  const budget = activeGroup?.targetBudget ?? user?.monthlyBudget ?? 0;
 
   const selectedMonthExpenses = useMemo(() => {
+    if (activeGroup) {
+      return expenses.filter((expense) => {
+        const expenseDate = new Date(expense.date);
+        return expenseDate.getFullYear() === selectedYear && expenseDate.getMonth() === monthIndex && expense.groupId === activeGroup.id;
+      });
+    }
     if (!userId) return [];
 
     return expenses.filter((expense) => {
@@ -42,7 +52,7 @@ export function AnalyticsPage() {
       const isRelevant = expense.paidById === userId || expense.splits.some((split) => split.userId === userId);
       return isSelectedMonth && isRelevant;
     });
-  }, [expenses, monthIndex, selectedYear, userId]);
+  }, [activeGroup, expenses, monthIndex, selectedYear, userId]);
 
   const categoryData = useMemo(() => {
     const totals = new Map<ExpenseCategory, number>();

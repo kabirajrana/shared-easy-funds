@@ -55,9 +55,12 @@ function sameGroup(a: Group | null, b: Group | null) {
     a.id === b.id &&
     a.name === b.name &&
     a.avatarColor === b.avatarColor &&
+    a.avatarImage === b.avatarImage &&
     a.inviteCode === b.inviteCode &&
     a.leaderId === b.leaderId &&
     a.targetDayOfMonth === b.targetDayOfMonth &&
+    a.targetDate === b.targetDate &&
+    a.targetBudget === b.targetBudget &&
     a.memberCount === b.memberCount &&
     a.lastUpdated === b.lastUpdated &&
     a.statusText === b.statusText &&
