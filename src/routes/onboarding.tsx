@@ -62,6 +62,7 @@ function Onboarding() {
         const g = createGroup({
           name: name.trim() || `${user.name} Fund`,
           avatarColor: "#1A6B5A",
+          targetBudget: target,
           targetDayOfMonth,
           memberEmails: [],
           leader: user,
@@ -74,6 +75,7 @@ function Onboarding() {
         const g = createGroup({
           name: name.trim() || `${user.name}'s Group`,
           avatarColor: "#1A6B5A",
+          targetBudget: target,
           targetDayOfMonth,
           memberEmails: [],
           leader: user,

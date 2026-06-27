@@ -48,6 +48,12 @@ function Notifs() {
     navigate({ to: `/groups/${groupId || group.id}` });
   };
 
+  const declineInvite = async (notificationId: string) => {
+    await api.declineGroupInvite(notificationId);
+    toast.message("Invite declined");
+    await qc.invalidateQueries({ queryKey: ["notifications"] });
+  };
+
   return (
     <AppShell title="Notifications" back hideNav>
       <div className="space-y-2 px-4 pt-4">
@@ -74,7 +80,7 @@ function Notifs() {
                 <p className="text-xs text-muted-foreground">{n.body}</p>
                 <p className="mt-1 text-[10px] text-muted-foreground">{new Date(n.date).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</p>
                 {n.meta?.kind === "group_invite" && n.meta.status === "pending" ? (
-                  <div className="mt-3">
+                  <div className="mt-3 flex gap-2">
                     <Button
                       type="button"
                       size="sm"
@@ -82,6 +88,15 @@ function Notifs() {
                       onClick={() => acceptInvite(n.id, n.meta!.invite_code, n.meta!.group_id)}
                     >
                       Accept invite
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 rounded-full px-3"
+                      onClick={() => declineInvite(n.id)}
+                    >
+                      Decline
                     </Button>
                   </div>
                 ) : null}

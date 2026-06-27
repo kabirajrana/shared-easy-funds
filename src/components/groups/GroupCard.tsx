@@ -3,6 +3,7 @@ import type { Group } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, formatMonthlyCycle } from "@/lib/utils";
 import { SajhaAvatar } from "@/components/ui/avatar";
+import { formatCurrency } from "@/utils/formatCurrency";
 
 export function GroupCard({ group }: { group: Group }) {
   const settled = !group.balance || group.balance === 0;
@@ -33,6 +34,9 @@ export function GroupCard({ group }: { group: Group }) {
                     ? `Target day: ${group.targetDayOfMonth}${group.targetDayOfMonth % 10 === 1 && group.targetDayOfMonth !== 11 ? "st" : group.targetDayOfMonth % 10 === 2 && group.targetDayOfMonth !== 12 ? "nd" : group.targetDayOfMonth % 10 === 3 && group.targetDayOfMonth !== 13 ? "rd" : "th"} each month`
                     : "No target set"}
               </p>
+              {typeof group.targetBudget === "number" ? (
+                <p className="mt-1 text-[11px] text-[var(--saj-muted)]">Target budget: {formatCurrency(group.targetBudget)}</p>
+              ) : null}
               {group.targetDate ? null : (
                 <p className="mt-1 text-[11px] text-[var(--saj-muted)]">
                   Cycle: {formatMonthlyCycle(group.targetDayOfMonth)}

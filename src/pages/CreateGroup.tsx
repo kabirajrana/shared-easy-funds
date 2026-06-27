@@ -35,6 +35,7 @@ export function CreateGroupPage() {
   const [name, setName] = useState("");
   const [avatarColor, setAvatarColor] = useState("#1A6B5A");
   const [avatarImage, setAvatarImage] = useState<string | undefined>(undefined);
+  const [targetBudget, setTargetBudget] = useState("45000");
   const [targetDate, setTargetDate] = useState(toDateInputValue(today));
   const minDate = toDateInputValue(today);
   const maxDate = toDateInputValue(addDays(today, 30));
@@ -48,6 +49,11 @@ export function CreateGroupPage() {
   }, [user?.name]);
 
   const submit = () => {
+    const parsedBudget = Number(targetBudget);
+    if (!Number.isFinite(parsedBudget) || parsedBudget <= 0) {
+      toast.error("Please enter a valid target budget.");
+      return;
+    }
     if (!targetDate) {
       toast.error("Please choose a target date.");
       return;
@@ -60,6 +66,7 @@ export function CreateGroupPage() {
       name: name.trim() || (user?.name ? `${user.name}'s Group` : "My Group"),
       avatarColor,
       avatarImage,
+      targetBudget: parsedBudget,
       targetDate,
       memberEmails: [],
       leader: user ?? undefined,
@@ -119,6 +126,15 @@ export function CreateGroupPage() {
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder={user?.name ? `${user.name}'s Group` : "My Group"}
+        />
+
+        <Input
+          label="Target budget (NPR)"
+          type="number"
+          min={1}
+          value={targetBudget}
+          onChange={(event) => setTargetBudget(event.target.value)}
+          placeholder="45000"
         />
 
         <section className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">

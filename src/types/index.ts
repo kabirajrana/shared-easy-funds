@@ -37,6 +37,7 @@ export interface Group {
   inviteCode: string;
   leaderId: string;
   memberIds: string[];
+  targetBudget?: number;
   targetDayOfMonth?: number;
   targetDate?: string;
   paymentQR?: PaymentQR;

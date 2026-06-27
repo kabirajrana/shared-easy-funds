@@ -13,6 +13,7 @@ import {
   SendHorizonal,
   Square,
   Upload,
+  Video,
   ThumbsUp,
   X,
 } from "lucide-react";
@@ -43,6 +44,78 @@ type PendingAttachment =
       mediaType: string;
       durationMs: number;
     };
+
+type CallMode = "voice" | "video";
+type CallPhase = "idle" | "dialing" | "ringing" | "connecting" | "active";
+type CallSignal =
+  | {
+      type: "invite";
+      callId: string;
+      groupId: string;
+      mode: CallMode;
+      fromId: string;
+      fromName: string;
+      fromColor?: string;
+      fromInitials?: string;
+      createdAt: string;
+    }
+  | {
+      type: "accept";
+      callId: string;
+      groupId: string;
+      mode: CallMode;
+      fromId: string;
+      fromName: string;
+      createdAt: string;
+    }
+  | {
+      type: "decline";
+      callId: string;
+      groupId: string;
+      fromId: string;
+      fromName: string;
+      createdAt: string;
+    }
+  | {
+      type: "offer";
+      callId: string;
+      groupId: string;
+      sdp: RTCSessionDescriptionInit;
+      fromId: string;
+      createdAt: string;
+    }
+  | {
+      type: "answer";
+      callId: string;
+      groupId: string;
+      sdp: RTCSessionDescriptionInit;
+      fromId: string;
+      createdAt: string;
+    }
+  | {
+      type: "candidate";
+      callId: string;
+      groupId: string;
+      candidate: RTCIceCandidateInit;
+      fromId: string;
+      createdAt: string;
+    }
+  | {
+      type: "end";
+      callId: string;
+      groupId: string;
+      fromId: string;
+      createdAt: string;
+    };
+
+type IncomingCall = Extract<CallSignal, { type: "invite" }>;
+type ActiveCall = {
+  callId: string;
+  mode: CallMode;
+  phase: Exclude<CallPhase, "idle" | "ringing">;
+  isHost: boolean;
+  peerName: string;
+};
 
 function formatMessageTime(iso: string) {
   return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -106,14 +179,27 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
+  const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
+  const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
+  const [remoteConnected, setRemoteConnected] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const callChannelRef = useRef<BroadcastChannel | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const recordStartedAtRef = useRef<number>(0);
   const recordedChunksRef = useRef<BlobPart[]>([]);
   const micStreamRef = useRef<MediaStream | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const activeCallRef = useRef<ActiveCall | null>(null);
+  const incomingCallRef = useRef<IncomingCall | null>(null);
 
   const members = group ? groupMembers[group.id] ?? [] : [];
   const groupMessages = useMemo(
@@ -132,6 +218,14 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
   }, [groupMessages.length]);
 
   useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
+
+  useEffect(() => {
+    incomingCallRef.current = incomingCall;
+  }, [incomingCall]);
+
+  useEffect(() => {
     if (!isRecording) return;
     const timer = window.setInterval(() => {
       setRecordSeconds(Math.max(0, Math.floor((Date.now() - recordStartedAtRef.current) / 1000)));
@@ -144,11 +238,289 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         recorderRef.current.stop();
       }
+      peerRef.current?.close();
+      peerRef.current = null;
+      callChannelRef.current?.close();
       micStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      remoteStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
 
+  useEffect(() => {
+    if (!user || typeof BroadcastChannel === "undefined") return;
+    const channel = new BroadcastChannel(`sajha:group-call:${groupId}`);
+    callChannelRef.current = channel;
+
+    channel.onmessage = (event) => {
+      const signal = event.data as CallSignal | undefined;
+      if (!signal || signal.groupId !== groupId || signal.fromId === user.id) return;
+
+      if (signal.type === "invite") {
+        if (activeCallRef.current || incomingCallRef.current) return;
+        setIncomingCall(signal);
+        setRemoteConnected(false);
+        return;
+      }
+
+      const currentCall = activeCallRef.current;
+      if (!currentCall || currentCall.callId !== signal.callId) return;
+
+      if (signal.type === "decline") {
+        toast.message(`${signal.fromName} declined the call`);
+        endCall(false);
+        return;
+      }
+
+      if (signal.type === "end") {
+        endCall(false);
+        return;
+      }
+
+      const pc = peerRef.current;
+      if (!pc) return;
+
+      if (signal.type === "accept" && currentCall.isHost && currentCall.phase === "dialing") {
+        void (async () => {
+          const nextPc = await attachPeer(currentCall.mode, true);
+          const offer = await nextPc.createOffer();
+          await nextPc.setLocalDescription(offer);
+          channel.postMessage({
+            type: "offer",
+            callId: currentCall.callId,
+            groupId,
+            sdp: offer,
+            fromId: user.id,
+            createdAt: new Date().toISOString(),
+          } satisfies CallSignal);
+          setActiveCall((current) => (current ? { ...current, phase: "connecting" } : current));
+        })();
+        return;
+      }
+
+      if (signal.type === "offer" && !currentCall.isHost) {
+        void (async () => {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+          for (const candidate of pendingCandidatesRef.current.splice(0)) {
+            try {
+              await pc.addIceCandidate(candidate);
+            } catch {}
+          }
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          channel.postMessage({
+            type: "answer",
+            callId: signal.callId,
+            groupId,
+            sdp: answer,
+            fromId: user.id,
+            createdAt: new Date().toISOString(),
+          } satisfies CallSignal);
+          setActiveCall((current) => (current ? { ...current, phase: "active" } : current));
+        })();
+        return;
+      }
+
+      if (signal.type === "answer" && currentCall.isHost) {
+        void (async () => {
+          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+          for (const candidate of pendingCandidatesRef.current.splice(0)) {
+            try {
+              await pc.addIceCandidate(candidate);
+            } catch {}
+          }
+          setActiveCall((current) => (current ? { ...current, phase: "active" } : current));
+          setRemoteConnected(true);
+        })();
+        return;
+      }
+
+      if (signal.type === "candidate") {
+        void (async () => {
+          const candidate = new RTCIceCandidate(signal.candidate);
+          if (pc.remoteDescription) {
+            try {
+              await pc.addIceCandidate(candidate);
+            } catch {}
+          } else {
+            pendingCandidatesRef.current.push(signal.candidate);
+          }
+        })();
+      }
+    };
+
+    return () => {
+      channel.close();
+      if (callChannelRef.current === channel) callChannelRef.current = null;
+    };
+  }, [groupId, user]);
+
+  useEffect(() => {
+    const el = localVideoRef.current;
+    if (!el) return;
+    el.srcObject = localStreamRef.current;
+  });
+
+  useEffect(() => {
+    const videoEl = remoteVideoRef.current;
+    if (videoEl) videoEl.srcObject = remoteStreamRef.current;
+    const audioEl = remoteAudioRef.current;
+    if (audioEl) audioEl.srcObject = remoteStreamRef.current;
+  });
+
   const closeAttachment = () => setPendingAttachment(null);
+
+  const sendCallSignal = (signal: CallSignal) => {
+    callChannelRef.current?.postMessage(signal);
+  };
+
+  const attachPeer = async (mode: CallMode, isHost: boolean) => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("This browser does not support calling.");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: mode === "video",
+    });
+    localStreamRef.current = stream;
+    setRemoteConnected(false);
+
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+    peerRef.current = pc;
+
+    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+    pc.ontrack = (event) => {
+      remoteStreamRef.current = event.streams[0] ?? null;
+      setRemoteConnected(true);
+    };
+    pc.onicecandidate = (event) => {
+      const currentCall = activeCallRef.current;
+      if (!event.candidate || !currentCall) return;
+      sendCallSignal({
+        type: "candidate",
+        callId: currentCall.callId,
+        groupId,
+        candidate: event.candidate.toJSON(),
+        fromId: user?.id ?? "",
+        createdAt: new Date().toISOString(),
+      });
+    };
+
+    if (mode === "video") {
+      setTimeout(() => {
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      }, 0);
+    }
+
+    return pc;
+  };
+
+  const cleanupCall = (clearIncoming = true) => {
+    peerRef.current?.close();
+    peerRef.current = null;
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    remoteStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localStreamRef.current = null;
+    remoteStreamRef.current = null;
+    pendingCandidatesRef.current = [];
+    setRemoteConnected(false);
+    setActiveCall(null);
+    if (clearIncoming) setIncomingCall(null);
+  };
+
+  const endCall = (notify = true) => {
+    const currentCallId = activeCall?.callId ?? incomingCall?.callId;
+    if (notify && currentCallId && user) {
+      sendCallSignal({
+        type: "end",
+        callId: currentCallId,
+        groupId,
+        fromId: user.id,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    cleanupCall();
+  };
+
+  const startOutgoingCall = (mode: CallMode) => {
+    if (!user) {
+      toast.error("Please sign in to place a call.");
+      return;
+    }
+    if (activeCall || incomingCall) {
+      toast.message("A call is already in progress.");
+      return;
+    }
+
+    const callId = crypto.randomUUID();
+    const next = {
+      callId,
+      mode,
+      phase: "dialing" as const,
+      isHost: true,
+      peerName: groupName,
+    };
+    setActiveCall(next);
+    setRemoteConnected(false);
+    sendCallSignal({
+      type: "invite",
+      callId,
+      groupId,
+      mode,
+      fromId: user.id,
+      fromName: user.name,
+      fromColor: user.avatarColor,
+      fromInitials: user.initials,
+      createdAt: new Date().toISOString(),
+    });
+    toast.message(`${mode === "video" ? "Video" : "Voice"} call started`);
+  };
+
+  const acceptIncomingCall = async () => {
+    if (!user || !incomingCall) return;
+    try {
+      const next = {
+        callId: incomingCall.callId,
+        mode: incomingCall.mode,
+        phase: "connecting" as const,
+        isHost: false,
+        peerName: incomingCall.fromName,
+      };
+      setIncomingCall(null);
+      setActiveCall(next);
+      const pc = await attachPeer(incomingCall.mode, false);
+      sendCallSignal({
+        type: "accept",
+        callId: incomingCall.callId,
+        groupId,
+        mode: incomingCall.mode,
+        fromId: user.id,
+        fromName: user.name,
+        createdAt: new Date().toISOString(),
+      });
+      void pc;
+    } catch {
+      toast.error("Could not start the call.");
+      cleanupCall();
+    }
+  };
+
+  const declineIncomingCall = () => {
+    if (!user || !incomingCall) return;
+    sendCallSignal({
+      type: "decline",
+      callId: incomingCall.callId,
+      groupId,
+      fromId: user.id,
+      fromName: user.name,
+      createdAt: new Date().toISOString(),
+    });
+    setIncomingCall(null);
+  };
+
 
   const handleSend = () => {
     if (!user) {
@@ -310,10 +682,18 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
           <button
             type="button"
             className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-white/85 transition hover:bg-white/10"
-            aria-label="Call"
-            onClick={() => toast.message("Calling is not wired yet")}
+            aria-label="Voice call"
+            onClick={() => startOutgoingCall("voice")}
           >
             <Phone className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-white/85 transition hover:bg-white/10"
+            aria-label="Video call"
+            onClick={() => startOutgoingCall("video")}
+          >
+            <Video className="h-5 w-5" />
           </button>
           <button
             type="button"
@@ -392,6 +772,167 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
           )}
         </div>
       </div>
+
+      {incomingCall ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-[28px] border border-white/10 bg-[#101827] p-5 text-center shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
+            <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[#1C7E5D] text-white">
+              <Phone className="h-7 w-7" />
+            </div>
+            <p className="mt-4 text-[12px] uppercase tracking-[0.2em] text-white/45">Incoming {incomingCall.mode} call</p>
+            <h2 className="mt-2 text-[20px] font-semibold text-white">{incomingCall.fromName}</h2>
+            <p className="mt-1 text-[13px] text-white/60">Someone in the group is calling you right now.</p>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={declineIncomingCall}
+                className="flex-1 rounded-full border border-white/10 bg-white/5 px-4 py-3 text-[14px] font-semibold text-white/80 hover:bg-white/10"
+              >
+                Decline
+              </button>
+              <button
+                type="button"
+                onClick={() => void acceptIncomingCall()}
+                className="flex-1 rounded-full bg-[#0A7C53] px-4 py-3 text-[14px] font-semibold text-white shadow-[0_10px_24px_rgba(10,124,83,0.35)] hover:brightness-110"
+              >
+                Accept
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {activeCall ? (
+        <div className="fixed inset-0 z-40 flex flex-col bg-[#071018] text-white">
+          <div className="flex items-center justify-between border-b border-white/10 px-4 pb-3 pt-[max(env(safe-area-inset-top),1rem)]">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-white/45">
+                {activeCall.mode === "video" ? "Video call" : "Voice call"}
+              </p>
+              <h2 className="text-[16px] font-semibold">{activeCall.peerName}</h2>
+              <p className="text-[12px] text-white/50">
+                {activeCall.phase === "dialing"
+                  ? "Ringing..."
+                  : activeCall.phase === "connecting"
+                    ? "Connecting..."
+                    : remoteConnected
+                      ? "Connected"
+                      : "Waiting for the other side"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => endCall()}
+              className="grid h-11 w-11 place-items-center rounded-full bg-[#a63a3a] text-white shadow-[0_10px_24px_rgba(166,58,58,0.35)]"
+              aria-label="End call"
+            >
+              <Phone className="h-5 w-5 rotate-[135deg]" />
+            </button>
+          </div>
+
+          <div className="relative flex-1 overflow-hidden px-4 py-4">
+            {activeCall.mode === "video" ? (
+              <div className="grid h-full gap-3 md:grid-cols-[1.35fr_0.65fr]">
+                <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-black">
+                  <video
+                    ref={remoteVideoRef}
+                    autoPlay
+                    playsInline
+                    className="h-full w-full object-cover"
+                  />
+                  {!remoteConnected ? (
+                    <div className="absolute inset-0 grid place-items-center bg-[radial-gradient(circle_at_top,rgba(26,107,90,0.3),rgba(7,16,24,0.95))]">
+                      <div className="text-center">
+                        <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-white/10 text-white/85">
+                          <Video className="h-9 w-9" />
+                        </div>
+                        <p className="mt-4 text-[15px] font-semibold text-white">Waiting for video</p>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <div className="rounded-[24px] border border-white/10 bg-white/5 p-3">
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">You</p>
+                    <video
+                      ref={localVideoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      className="aspect-[3/4] w-full rounded-[18px] bg-black object-cover"
+                    />
+                  </div>
+                  <div className="rounded-[24px] border border-white/10 bg-white/5 p-3">
+                    <p className="text-[12px] text-white/55">Audio is live once the call connects. You can end the call anytime.</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-4 rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(26,107,90,0.2),rgba(7,16,24,0.96))] px-6 text-center">
+                <div className="grid h-24 w-24 place-items-center rounded-full bg-[#1C7E5D] text-white shadow-[0_18px_40px_rgba(0,0,0,0.35)]">
+                  <Phone className="h-10 w-10" />
+                </div>
+                <div>
+                  <h3 className="text-[22px] font-semibold text-white">{activeCall.peerName}</h3>
+                  <p className="mt-1 text-[13px] text-white/55">
+                    {activeCall.phase === "dialing"
+                      ? "Calling now..."
+                      : activeCall.phase === "connecting"
+                        ? "Connecting audio..."
+                        : remoteConnected
+                          ? "Connected"
+                          : "Waiting for the other side"}
+                  </p>
+                </div>
+                <audio ref={remoteAudioRef} autoPlay />
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-white/10 bg-[#081019] px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-3">
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!peerRef.current) return;
+                  const tracks = localStreamRef.current?.getAudioTracks() ?? [];
+                  tracks.forEach((track) => {
+                    track.enabled = !track.enabled;
+                  });
+                }}
+                className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white/80 hover:bg-white/15"
+                aria-label="Mute"
+              >
+                <Mic className="h-5 w-5" />
+              </button>
+              {activeCall.mode === "video" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const tracks = localStreamRef.current?.getVideoTracks() ?? [];
+                    tracks.forEach((track) => {
+                      track.enabled = !track.enabled;
+                    });
+                  }}
+                  className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white/80 hover:bg-white/15"
+                  aria-label="Toggle camera"
+                >
+                  <Video className="h-5 w-5" />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => endCall()}
+                className="grid h-14 w-14 place-items-center rounded-full bg-[#a63a3a] text-white shadow-[0_10px_24px_rgba(166,58,58,0.35)]"
+                aria-label="End call"
+              >
+                <Phone className="h-6 w-6 rotate-[135deg]" />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="border-t border-white/5 bg-[#0f1520] px-3 py-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
         {pendingAttachment ? (

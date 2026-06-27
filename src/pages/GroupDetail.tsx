@@ -139,6 +139,17 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
             </>
           )}
         </div>
+        {typeof group.targetBudget === "number" ? (
+          <div className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+            <p className="text-[11px] text-[var(--saj-muted)]">Target budget</p>
+            <p className="mt-1 text-[14px] font-medium text-[var(--saj-text)]">
+              {formatCurrency(group.targetBudget)}
+            </p>
+            <p className="mt-1 text-[12px] text-[var(--saj-muted)]">
+              This is the shared budget goal the group leader sets when creating the group.
+            </p>
+          </div>
+        ) : null}
         <PaymentQRCard paymentQR={group.paymentQR} canEdit={canEditQr} onAttach={onAttachQr} onShare={onShareQr} />
         {canEditQr ? (
           <input

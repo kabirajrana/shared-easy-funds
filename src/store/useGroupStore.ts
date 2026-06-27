@@ -17,6 +17,7 @@ type GroupState = {
     name: string;
     avatarColor: string;
     avatarImage?: string;
+    targetBudget?: number;
     targetDayOfMonth?: number;
     targetDate?: string;
     memberEmails: string[];
@@ -43,6 +44,7 @@ function normalizeGroup(raw: any): Group | null {
     inviteCode: String(raw.invite_code),
     leaderId: String(raw.leaderId ?? raw.leader_id ?? ""),
     memberIds: Array.isArray(raw.memberIds) ? raw.memberIds.map(String) : [],
+    targetBudget: typeof raw.targetBudget === "number" ? raw.targetBudget : raw.target_budget,
     targetDayOfMonth: raw.targetDayOfMonth ?? raw.target_day_of_month,
     targetDate: raw.targetDate ?? raw.target_date,
     paymentQR: raw.paymentQR
@@ -140,7 +142,17 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       persistWorkspace(next);
       return next;
     }),
-  createGroup: ({ name, avatarColor, avatarImage, targetDayOfMonth, targetDate, memberEmails, paymentQR, leader }) => {
+  createGroup: ({
+    name,
+    avatarColor,
+    avatarImage,
+    targetBudget,
+    targetDayOfMonth,
+    targetDate,
+    memberEmails,
+    paymentQR,
+    leader,
+  }) => {
     const current = loadWorkspace();
     const owner = leader ?? useUserStore.getState().currentUser;
     const group: Group = {
@@ -151,6 +163,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       inviteCode: generateInviteCode(),
       leaderId: owner.id,
       memberIds: [owner.id, ...memberEmails.map((email) => email.toLowerCase())],
+      targetBudget,
       targetDayOfMonth,
       targetDate,
       paymentQR,

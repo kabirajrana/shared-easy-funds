@@ -448,6 +448,26 @@ export const api = {
           });
           persistMembers();
         }
+        if (n.meta.sender_id) {
+          createNotification({
+            id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+            type: "approval",
+            title: `${targetUser.name} accepted your invite`,
+            body: `${targetUser.name} joined ${g.name}.`,
+            date: iso(new Date()),
+            read: false,
+            recipient_id: n.meta.sender_id,
+            meta: {
+              kind: "group_invite",
+              group_id: g.id,
+              group_name: g.name,
+              invite_code: g.invite_code,
+              sender_id: targetUser.id,
+              sender_name: targetUser.name,
+              status: "accepted",
+            },
+          });
+        }
       }
       n.read = true;
       n.meta.status = "accepted";
@@ -455,6 +475,40 @@ export const api = {
       return delay(undefined);
     }
     await http(`/api/notifications/${notificationId}/accept`, { method: "POST" });
+  },
+
+  async declineGroupInvite(notificationId: string): Promise<void> {
+    if (USE_MOCK) {
+      const n = notifications.find((item) => item.id === notificationId);
+      if (!n?.meta || n.meta.kind !== "group_invite") return delay(undefined);
+      const targetUser = getCurrentUser();
+      if (n.meta.sender_id && targetUser) {
+        createNotification({
+          id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+          type: "rejection",
+          title: `${targetUser.name} declined your invite`,
+          body: `${targetUser.name} did not join ${n.meta.group_name}.`,
+          date: iso(new Date()),
+          read: false,
+          recipient_id: n.meta.sender_id,
+          meta: {
+            kind: "group_invite",
+            group_id: n.meta.group_id,
+            group_name: n.meta.group_name,
+            invite_code: n.meta.invite_code,
+            sender_id: targetUser?.id,
+            sender_name: targetUser?.name,
+            status: "rejected",
+          },
+        });
+      }
+      n.read = true;
+      n.meta.status = "rejected";
+      persistNotifs();
+      emitNotificationsChanged();
+      return delay(undefined);
+    }
+    await http(`/api/notifications/${notificationId}/decline`, { method: "POST" });
   },
 
   async getGroup(id: string): Promise<Group> {
