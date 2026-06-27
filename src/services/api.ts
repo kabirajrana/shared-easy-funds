@@ -72,6 +72,19 @@ export interface Notification {
   };
 }
 
+export interface GroupInvitation {
+  id: string;
+  group_id: string;
+  invited_by: string;
+  invited_email: string;
+  invited_user_id?: string;
+  status: "pending" | "accepted" | "declined" | "expired";
+  token: string;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MemberWithUser {
   membership: Membership;
   user: User;
@@ -86,6 +99,7 @@ const USE_MOCK = !BASE_URL;
 const LS_USERS = "sajha.users";
 const LS_GROUPS = "sajha.groups";
 const LS_MEMBERS = "sajha.memberships";
+const LS_INVITES = "sajha.group_invitations";
 const LS_TXS = "sajha.transactions";
 const LS_NOTIFS = "sajha.notifications";
 const LS_CURRENT_USER = "sajha.currentUserId";
@@ -113,6 +127,25 @@ type StoredGroupLike = Partial<Group> & {
   solo?: boolean;
 };
 
+type StoredInvitationLike = Partial<GroupInvitation> & {
+  groupId?: string;
+  invitedBy?: string;
+  invitedEmail?: string;
+  invitedUserId?: string;
+  status?: GroupInvitation["status"];
+  token?: string;
+  expiresAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  group_id?: string;
+  invited_by?: string;
+  invited_email?: string;
+  invited_user_id?: string;
+  expires_at?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
 function load<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
@@ -132,10 +165,14 @@ function save<T>(key: string, val: T) {
 let users: User[] = load<User[]>(LS_USERS, []);
 let groups: Group[] = load<Group[]>(LS_GROUPS, []);
 let memberships: Membership[] = load<Membership[]>(LS_MEMBERS, []);
+let invitations: GroupInvitation[] = load<GroupInvitation[]>(LS_INVITES, []);
 let transactions: Transaction[] = load<Transaction[]>(LS_TXS, []);
 let notifications: Notification[] = load<Notification[]>(LS_NOTIFS, []);
 let currentUserId: string =
   (typeof window !== "undefined" && localStorage.getItem(LS_CURRENT_USER)) || "";
+
+let notificationChannel: BroadcastChannel | null = null;
+let notificationSyncReady = false;
 
 function seedUsers(existing: User[]) {
   const merged = [...existing];
@@ -153,12 +190,30 @@ function seedUsers(existing: User[]) {
 const persistUsers = () => save(LS_USERS, users);
 const persistGroups = () => save(LS_GROUPS, groups);
 const persistMembers = () => save(LS_MEMBERS, memberships);
+const persistInvites = () => save(LS_INVITES, invitations);
 const persistTxs = () => save(LS_TXS, transactions);
 const persistNotifs = () => save(LS_NOTIFS, notifications);
 
 function emitNotificationsChanged() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event("sajha:notifications-updated"));
+  notificationChannel?.postMessage({ type: "notifications:updated" });
+}
+
+function setupNotificationSync(onChange: () => void) {
+  if (typeof window === "undefined" || notificationSyncReady) return;
+  notificationSyncReady = true;
+
+  if ("BroadcastChannel" in window) {
+    notificationChannel = new BroadcastChannel("sajha:notifications");
+    notificationChannel.onmessage = (event) => {
+      if (event.data?.type === "notifications:updated") onChange();
+    };
+  }
+
+  window.addEventListener("storage", (event) => {
+    if (event.key === LS_NOTIFS || event.key === LS_INVITES || event.key === LS_CURRENT_USER) onChange();
+  });
 }
 
 const iso = (d: Date) => d.toISOString();
@@ -186,14 +241,55 @@ function normalizeGroup(raw: StoredGroupLike | unknown): Group | null {
   };
 }
 
+function normalizeInvitation(raw: StoredInvitationLike | unknown): GroupInvitation | null {
+  if (!raw || typeof raw !== "object") return null;
+  const invite = raw as StoredInvitationLike;
+  const groupId = invite.group_id ?? invite.groupId;
+  const invitedBy = invite.invited_by ?? invite.invitedBy;
+  const invitedEmail = invite.invited_email ?? invite.invitedEmail;
+  const token = invite.token;
+  if (typeof groupId !== "string" || typeof invitedBy !== "string" || typeof invitedEmail !== "string" || typeof token !== "string") {
+    return null;
+  }
+
+  return {
+    id: String(invite.id ?? crypto.randomUUID()),
+    group_id: groupId,
+    invited_by: invitedBy,
+    invited_email: invitedEmail,
+    invited_user_id: typeof (invite.invited_user_id ?? invite.invitedUserId) === "string"
+      ? String(invite.invited_user_id ?? invite.invitedUserId)
+      : undefined,
+    status:
+      invite.status === "accepted" || invite.status === "declined" || invite.status === "expired"
+        ? invite.status
+        : "pending",
+    token,
+    expires_at: String(invite.expires_at ?? invite.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()),
+    created_at: String(invite.created_at ?? invite.createdAt ?? new Date().toISOString()),
+    updated_at: String(invite.updated_at ?? invite.updatedAt ?? new Date().toISOString()),
+  };
+}
+
 function loadGroupsSnapshot(): Group[] {
   const rawGroups = load<unknown[]>(LS_GROUPS, []);
   return rawGroups.map(normalizeGroup).filter(Boolean) as Group[];
 }
 
+function loadInvitationsSnapshot(): GroupInvitation[] {
+  const rawInvites = load<unknown[]>(LS_INVITES, []);
+  return rawInvites.map(normalizeInvitation).filter(Boolean) as GroupInvitation[];
+}
+
 function refreshGroups() {
   groups = loadGroupsSnapshot();
   return groups;
+}
+
+function refreshInvitations() {
+  invitations = loadInvitationsSnapshot();
+  persistInvites();
+  return invitations;
 }
 
 function refreshUsers() {
@@ -228,6 +324,31 @@ function createNotification(notification: Notification) {
   notifications.unshift(notification);
   persistNotifs();
   emitNotificationsChanged();
+}
+
+function createInvitation(input: {
+  groupId: string;
+  invitedBy: string;
+  invitedEmail: string;
+  invitedUserId?: string;
+}) {
+  const invitation: GroupInvitation = {
+    id: `inv_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+    group_id: input.groupId,
+    invited_by: input.invitedBy,
+    invited_email: input.invitedEmail,
+    invited_user_id: input.invitedUserId,
+    status: "pending",
+    token: refreshGroups().find((group) => group.id === input.groupId)?.invite_code ?? genInvite(),
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    created_at: iso(new Date()),
+    updated_at: iso(new Date()),
+  };
+
+  invitations.unshift(invitation);
+  persistInvites();
+  emitNotificationsChanged();
+  return invitation;
 }
 
 async function hashPassword(pw: string): Promise<string> {
@@ -338,6 +459,12 @@ export const api = {
         for (const email of opts.memberEmails) {
           const targetUser = users.find((x) => x.email.toLowerCase() === email.toLowerCase());
           if (!targetUser || targetUser.id === currentUserId) continue;
+          const invitation = createInvitation({
+            groupId: g.id,
+            invitedBy: sender?.id ?? currentUserId,
+            invitedEmail: targetUser.email,
+            invitedUserId: targetUser.id,
+          });
           createNotification({
             id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
             type: "request",
@@ -348,6 +475,7 @@ export const api = {
             recipient_id: targetUser.id,
             meta: {
               kind: "group_invite",
+              invitationId: invitation.id,
               group_id: g.id,
               group_name: g.name,
               invite_code: g.invite_code,
@@ -400,6 +528,12 @@ export const api = {
       const recipientEmail = email.trim().toLowerCase();
       const targetUser = users.find((x) => x.email.toLowerCase() === recipientEmail);
       if (targetUser?.id === currentUserId) throw new Error("You cannot invite yourself.");
+      const invitation = createInvitation({
+        groupId: g.id,
+        invitedBy: currentUserId,
+        invitedEmail: recipientEmail,
+        invitedUserId: targetUser?.id,
+      });
       createNotification({
         id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
         type: "request",
@@ -411,6 +545,7 @@ export const api = {
         recipient_email: recipientEmail,
         meta: {
           kind: "group_invite",
+          invitationId: invitation.id,
           group_id: g.id,
           group_name: g.name,
           invite_code: g.invite_code,
