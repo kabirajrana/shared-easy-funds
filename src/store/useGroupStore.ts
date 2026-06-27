@@ -28,8 +28,39 @@ type GroupState = {
   generateInviteCode: () => string;
   setActiveGroupId: (groupId: string) => void;
   updateGroup: (groupId: string, patch: Partial<Group>) => void;
-  joinGroup: (inviteCode: string) => Group | undefined;
 };
+
+function normalizeGroup(raw: any): Group | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (typeof raw.inviteCode === "string") return raw as Group;
+  if (typeof raw.invite_code !== "string") return null;
+
+  return {
+    id: String(raw.id),
+    name: String(raw.name ?? "My group"),
+    avatarColor: String(raw.avatarColor ?? raw.avatar_color ?? "#1A6B5A"),
+    avatarImage: raw.avatarImage ?? raw.avatar_url,
+    inviteCode: String(raw.invite_code),
+    leaderId: String(raw.leaderId ?? raw.leader_id ?? ""),
+    memberIds: Array.isArray(raw.memberIds) ? raw.memberIds.map(String) : [],
+    targetDayOfMonth: raw.targetDayOfMonth ?? raw.target_day_of_month,
+    targetDate: raw.targetDate ?? raw.target_date,
+    paymentQR: raw.paymentQR
+      ? raw.paymentQR
+      : raw.qr_image_url || raw.qr_label
+        ? {
+            provider: "eSewa",
+            name: String(raw.qr_label ?? raw.name ?? "Group wallet"),
+            qrImage: raw.qr_image_url,
+          }
+        : undefined,
+    createdAt: String(raw.createdAt ?? new Date().toISOString().slice(0, 10)),
+    memberCount: raw.memberCount ?? raw.member_count ?? undefined,
+    lastUpdated: raw.lastUpdated ?? raw.last_updated ?? undefined,
+    statusText: raw.statusText ?? raw.status_text ?? undefined,
+    balance: raw.balance ?? 0,
+  };
+}
 
 function loadWorkspace() {
   if (typeof window === "undefined") {
@@ -44,9 +75,10 @@ function loadWorkspace() {
     const rawGroups = localStorage.getItem(GROUPS_PREFIX);
     const rawMembers = localStorage.getItem(MEMBERS_PREFIX);
     const rawActive = localStorage.getItem(ACTIVE_PREFIX);
+    const groups = rawGroups ? (JSON.parse(rawGroups) as unknown[]) : [];
 
     return {
-      groups: rawGroups ? (JSON.parse(rawGroups) as Group[]) : [],
+      groups: groups.map(normalizeGroup).filter(Boolean) as Group[],
       groupMembers: rawMembers ? (JSON.parse(rawMembers) as Record<string, User[]>) : {},
       activeGroupId: rawActive ?? "",
     };

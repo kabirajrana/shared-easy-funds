@@ -12,6 +12,7 @@ import { formatCurrency } from "@/utils/formatCurrency";
 import { formatMonthlyCycle } from "@/lib/utils";
 import { useExpenseStore } from "@/store/useExpenseStore";
 import { useGroupStore } from "@/store/useGroupStore";
+import { api } from "@/services/api";
 import { toast } from "sonner";
 
 function formatTargetDay(day?: number) {
@@ -106,10 +107,18 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
       />
 
       <div className="space-y-3 px-4">
-        <InviteCodeCard inviteCode={group.inviteCode} onAddMember={(email) => {
-          const addMember = useGroupStore.getState().addMember;
-          if (email) addMember(group.id, email);
-        }} />
+        <InviteCodeCard
+          inviteCode={group.inviteCode}
+          onAddMember={async (email) => {
+            if (!email) return;
+            try {
+              await api.sendGroupInvite(group.id, email);
+              toast.success("Join request sent");
+            } catch (error: any) {
+              toast.error(error?.message ?? "Could not send invite");
+            }
+          }}
+        />
         <div className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <p className="text-[11px] text-[var(--saj-muted)]">Target schedule</p>
           {group.targetDate ? (

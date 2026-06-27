@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { AppShell } from "@/components/layout/AppShell";
@@ -6,6 +7,9 @@ import { AuthGate } from "@/components/layout/AuthGate";
 import { api } from "@/services/api";
 import { Bell, CheckCircle2, XCircle, FileBarChart, AlertTriangle, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { useGroupStore } from "@/store/useGroupStore";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/notifications")({
   head: () => ({ meta: [{ title: "Notifications — Sajha" }] }),
@@ -22,12 +26,27 @@ const ICON = {
 
 function Notifs() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const joinGroup = useGroupStore((state) => state.joinGroup);
   const { data: items = [] } = useQuery({ queryKey: ["notifications"], queryFn: api.getNotifications });
 
   useEffect(() => {
     api.markNotificationsRead().then(() => qc.invalidateQueries({ queryKey: ["notifications"] }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const acceptInvite = async (notificationId: string, inviteCode: string, groupId: string) => {
+    const group = joinGroup(inviteCode);
+    if (!group) {
+      toast.error("Invite code is no longer available.");
+      return;
+    }
+
+    await api.acceptGroupInvite(notificationId);
+    toast.success("Join request accepted");
+    await qc.invalidateQueries({ queryKey: ["notifications"] });
+    navigate({ to: `/groups/${groupId || group.id}` });
+  };
 
   return (
     <AppShell title="Notifications" back hideNav>
@@ -54,6 +73,18 @@ function Notifs() {
                 <p className="text-sm font-semibold">{n.title}</p>
                 <p className="text-xs text-muted-foreground">{n.body}</p>
                 <p className="mt-1 text-[10px] text-muted-foreground">{new Date(n.date).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</p>
+                {n.meta?.kind === "group_invite" && n.meta.status === "pending" ? (
+                  <div className="mt-3">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 rounded-full px-3"
+                      onClick={() => acceptInvite(n.id, n.meta!.invite_code, n.meta!.group_id)}
+                    >
+                      Accept invite
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             </div>
           );

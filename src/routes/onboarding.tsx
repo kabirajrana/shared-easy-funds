@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { formatMonthlyCycle } from "@/lib/utils";
 import { toast } from "sonner";
 import { User as UserIcon, Users, KeyRound, X } from "lucide-react";
+import { useGroupStore } from "@/store/useGroupStore";
+import { useUserStore } from "@/store/useUserStore";
 
 export const Route = createFileRoute("/onboarding")({
   component: Onboarding,
@@ -26,6 +28,9 @@ function Onboarding() {
   const [emails, setEmails] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
+  const createGroup = useGroupStore((state) => state.createGroup);
+  const joinGroup = useGroupStore((state) => state.joinGroup);
+  const updateBudget = useUserStore((state) => state.updateBudget);
 
   if (!user) return <Navigate to="/auth" replace />;
 
@@ -54,30 +59,53 @@ function Onboarding() {
     setBusy(true);
     try {
       if (mode === "solo") {
-        const g = await api.createGroup(name.trim() || `${user.name} Fund`, target, {
-          solo: true,
+        const g = createGroup({
+          name: name.trim() || `${user.name} Fund`,
+          avatarColor: "#1A6B5A",
           targetDayOfMonth,
+          memberEmails: [],
+          leader: user,
         });
+        updateBudget(target);
         setGroup(g);
         toast.success("Solo fund created");
         navigate({ to: "/" });
       } else if (mode === "create") {
-        const g = await api.createGroup(name.trim() || `${user.name}'s Group`, target, {
-          memberEmails: emails,
+        const g = createGroup({
+          name: name.trim() || `${user.name}'s Group`,
+          avatarColor: "#1A6B5A",
           targetDayOfMonth,
+          memberEmails: [],
+          leader: user,
         });
+        updateBudget(target);
         setGroup(g);
-        const missing = emails.filter((e) => !api.allUsers().some((u) => u.email.toLowerCase() === e));
-        if (missing.length) {
+        const registered = api.allUsers();
+        const inviteResults = await Promise.allSettled(
+          emails.map((email) => api.sendGroupInvite(g.id, email.trim().toLowerCase())),
+        );
+        const missing = emails.filter((email) => !registered.some((u) => u.email.toLowerCase() === email));
+        const sent = inviteResults.filter((result) => result.status === "fulfilled").length;
+        if (sent > 0 && missing.length > 0) {
           toast.message("Group created", {
-            description: `${missing.length} email(s) aren't registered yet. Share the secret invite code so they can join after they sign up.`,
+            description: `${sent} registered member(s) were sent join requests. ${missing.length} email(s) aren't registered yet, so share the invite code with them after they sign up.`,
+          });
+        } else if (sent > 0) {
+          toast.success("Group created and join requests sent");
+        } else if (missing.length > 0) {
+          toast.message("Group created", {
+            description: `${missing.length} email(s) aren't registered yet. Share the invite code so they can join later.`,
           });
         } else {
           toast.success("Group created");
         }
         navigate({ to: "/" });
       } else {
-        const g = await api.joinGroup(code);
+        const g = joinGroup(code);
+        if (!g) {
+          toast.error("Invalid invite code. Ask the leader to share it again.");
+          return;
+        }
         setGroup(g);
         toast.success(`Joined ${g.name}`);
         navigate({ to: "/" });

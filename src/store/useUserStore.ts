@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { PaymentProvider, User } from "@/types";
 import { demoUsers } from "@/store/seed";
+import { api } from "@/services/api";
 
 const LS_CURRENT_USER = "sajha.currentUser";
 
@@ -46,6 +47,7 @@ export const useUserStore = create<UserState>((set) => ({
   },
   signOut: () => {
     saveStoredUser(null);
+    api.setCurrentUser("");
     set({ currentUser: defaultUser, isAuthenticated: false });
   },
   updateProfile: (patch) =>

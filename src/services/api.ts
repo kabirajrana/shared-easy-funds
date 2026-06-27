@@ -57,6 +57,16 @@ export interface Notification {
   body: string;
   date: string;
   read: boolean;
+  recipient_id?: string;
+  meta?: {
+    kind: "group_invite";
+    group_id: string;
+    group_name: string;
+    invite_code: string;
+    sender_id?: string;
+    sender_name?: string;
+    status?: "pending" | "accepted" | "rejected";
+  };
 }
 
 export interface MemberWithUser {
@@ -116,6 +126,15 @@ function genInvite(): string {
   let s = "";
   for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return `SAJHA-${s}`;
+}
+
+function getCurrentUser() {
+  return users.find((user) => user.id === currentUserId) ?? null;
+}
+
+function createNotification(notification: Notification) {
+  notifications.unshift(notification);
+  persistNotifs();
 }
 
 async function hashPassword(pw: string): Promise<string> {
@@ -215,22 +234,35 @@ export const api = {
         role: "leader",
         joined_at: iso(new Date()),
       });
-      // Add any pre-invited members (must already be registered)
-      if (!opts?.solo && opts?.memberEmails?.length) {
-        for (const email of opts.memberEmails) {
-          const u = users.find((x) => x.email.toLowerCase() === email.toLowerCase());
-          if (u && u.id !== currentUserId) {
-            memberships.push({
-              user_id: u.id,
-              group_id: g.id,
-              role: "member",
-              joined_at: iso(new Date()),
-            });
-          }
-        }
-      }
       persistGroups();
       persistMembers();
+
+      if (!opts?.solo && opts?.memberEmails?.length) {
+        const sender = getCurrentUser();
+        for (const email of opts.memberEmails) {
+          const targetUser = users.find((x) => x.email.toLowerCase() === email.toLowerCase());
+          if (!targetUser || targetUser.id === currentUserId) continue;
+          createNotification({
+            id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+            type: "request",
+            title: `Group invite from ${g.name}`,
+            body: `${sender?.name ?? "A group leader"} invited you to join ${g.name}.`,
+            date: iso(new Date()),
+            read: false,
+            recipient_id: targetUser.id,
+            meta: {
+              kind: "group_invite",
+              group_id: g.id,
+              group_name: g.name,
+              invite_code: g.invite_code,
+              sender_id: sender?.id,
+              sender_name: sender?.name,
+              status: "pending",
+            },
+          });
+        }
+      }
+
       return delay(g);
     }
     return http("/api/groups", {
@@ -262,6 +294,66 @@ export const api = {
       return delay(g);
     }
     return http("/api/groups/join", { method: "POST", body: JSON.stringify({ invite_code }) });
+  },
+
+  async sendGroupInvite(groupId: string, email: string): Promise<void> {
+    if (USE_MOCK) {
+      if (!currentUserId) throw new Error("Please sign in first.");
+      const g = groups.find((x) => x.id === groupId);
+      if (!g) throw new Error("Group not found");
+      const targetUser = users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
+      if (!targetUser) throw new Error("No registered user with that email.");
+      if (targetUser.id === currentUserId) throw new Error("You cannot invite yourself.");
+      createNotification({
+        id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+        type: "request",
+        title: `Group invite from ${g.name}`,
+        body: `${getCurrentUser()?.name ?? "A group leader"} invited you to join ${g.name}.`,
+        date: iso(new Date()),
+        read: false,
+        recipient_id: targetUser.id,
+        meta: {
+          kind: "group_invite",
+          group_id: g.id,
+          group_name: g.name,
+          invite_code: g.invite_code,
+          sender_id: currentUserId,
+          sender_name: getCurrentUser()?.name,
+          status: "pending",
+        },
+      });
+      return delay(undefined);
+    }
+    await http(`/api/groups/${groupId}/invites`, {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  async acceptGroupInvite(notificationId: string): Promise<void> {
+    if (USE_MOCK) {
+      const n = notifications.find((item) => item.id === notificationId);
+      if (!n?.meta || n.meta.kind !== "group_invite") return delay(undefined);
+      const targetUser = getCurrentUser();
+      const g = groups.find((group) => group.id === n.meta!.group_id || group.invite_code === n.meta!.invite_code);
+      if (g && targetUser) {
+        const already = memberships.some((m) => m.group_id === g.id && m.user_id === targetUser.id);
+        if (!already) {
+          memberships.push({
+            user_id: targetUser.id,
+            group_id: g.id,
+            role: "member",
+            joined_at: iso(new Date()),
+          });
+          persistMembers();
+        }
+      }
+      n.read = true;
+      n.meta.status = "accepted";
+      persistNotifs();
+      return delay(undefined);
+    }
+    await http(`/api/notifications/${notificationId}/accept`, { method: "POST" });
   },
 
   async getGroup(id: string): Promise<Group> {
@@ -498,13 +590,18 @@ export const api = {
 
   // ---------- NOTIFICATIONS ----------
   async getNotifications(): Promise<Notification[]> {
-    if (USE_MOCK) return delay([...notifications]);
+    if (USE_MOCK) {
+      const visible = notifications.filter((n) => !n.recipient_id || n.recipient_id === currentUserId);
+      return delay([...visible]);
+    }
     return http(`/api/notifications`);
   },
 
   async markNotificationsRead(): Promise<void> {
     if (USE_MOCK) {
-      notifications = notifications.map((n) => ({ ...n, read: true }));
+      notifications = notifications.map((n) =>
+        !n.recipient_id || n.recipient_id === currentUserId ? { ...n, read: true } : n,
+      );
       persistNotifs();
       return delay(undefined);
     }

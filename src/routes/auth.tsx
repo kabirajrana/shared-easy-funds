@@ -9,7 +9,7 @@ import { useSession } from "@/lib/session";
 import { getInitials } from "@/lib/utils";
 import type { User } from "@/lib/types";
 import { useUserStore } from "@/store/useUserStore";
-import { useGroupStore } from "@/store/useGroupStore";
+import { api } from "@/services/api";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Auth — Sajha" }] }),
@@ -19,7 +19,6 @@ export const Route = createFileRoute("/auth")({
 function AuthPage() {
   const { user, hydrated, setUser, setGroup } = useSession();
   const signInUser = useUserStore((state) => state.signIn);
-  const groups = useGroupStore((state) => state.groups);
   const [mode, setMode] = useState("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -28,10 +27,10 @@ function AuthPage() {
   const navigate = useNavigate();
 
   if (hydrated && user) {
-    return <Navigate to={groups.length > 0 ? "/" : "/groups"} replace />;
+    return <Navigate to="/" replace />;
   }
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const fullName = name.trim();
     const emailAddress = email.trim().toLowerCase();
@@ -51,21 +50,29 @@ function AuthPage() {
       mode === "signup" && fullName
         ? fullName
         : emailAddress.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-    const nextUser: User = {
-      id: crypto.randomUUID(),
-      name: displayName,
-      email: emailAddress,
-      avatarColor: "#1A6B5A",
-      monthlyBudget: 45000,
-      phone: phone.trim() || "",
-      initials: getInitials(displayName),
-    };
+    try {
+      const authUser =
+        mode === "login"
+          ? await api.login(emailAddress, password)
+          : await api.register(displayName, emailAddress, password);
+      const nextUser: User = {
+        id: authUser.id,
+        name: authUser.name,
+        email: authUser.email,
+        avatarColor: "#1A6B5A",
+        monthlyBudget: 45000,
+        phone: phone.trim() || "",
+        initials: getInitials(authUser.name),
+      };
 
-    setUser(nextUser);
-    signInUser(nextUser);
-    setGroup(null);
-    toast.success(mode === "login" ? "Welcome back" : "Account created");
-    navigate({ to: mode === "signup" ? "/groups" : groups.length > 0 ? "/" : "/groups" });
+      setUser(nextUser);
+      signInUser(nextUser);
+      setGroup(null);
+      toast.success(mode === "login" ? "Welcome back" : "Account created");
+      navigate({ to: mode === "signup" ? "/onboarding" : "/" });
+    } catch (error: any) {
+      toast.error(error?.message ?? "Something went wrong");
+    }
   };
 
   return (
