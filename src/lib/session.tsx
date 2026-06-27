@@ -9,7 +9,6 @@ import {
 } from "react";
 import type { Group, User } from "@/lib/types";
 import { formatNPR } from "@/lib/utils";
-import { demoGroups, demoUsers } from "@/store/seed";
 
 interface SessionState {
   user: User | null;
@@ -73,9 +72,9 @@ function sameGroup(a: Group | null, b: Group | null) {
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [user, setUserState] = useState<User | null>(demoUsers[0]);
-  const [group, setGroupState] = useState<Group | null>(demoGroups[0]);
-  const [role, setRole] = useState<"leader" | "member" | null>("leader");
+  const [user, setUserState] = useState<User | null>(null);
+  const [group, setGroupState] = useState<Group | null>(null);
+  const [role, setRole] = useState<"leader" | "member" | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {

@@ -79,13 +79,13 @@ export function HomePage() {
                 <Link to="/groups/new">Create group</Link>
               </Button>
               <Button asChild variant="secondary" className="h-11 rounded-[18px] border-white/20 bg-white/10 text-white hover:bg-white/15">
-                <Link to="/groups">Go to groups</Link>
+                <Link to="/groups">Join with invite code</Link>
               </Button>
             </div>
             <div className="mt-4 rounded-2xl border border-white/15 bg-white/10 p-3">
-              <p className="text-[12px] font-medium text-white">Set your target budget</p>
+              <p className="text-[12px] font-medium text-white">Join a shared workspace</p>
               <p className="mt-1 text-[11px] leading-5 text-white/75">
-                Group leaders can define the budget and target date from the Groups section.
+                Ask your group leader for an invite code, then join to see shared budgets, expenses, reports, and analytics.
               </p>
             </div>
           </section>

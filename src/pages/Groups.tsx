@@ -1,12 +1,31 @@
+import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { IconPlus } from "@tabler/icons-react";
+import { toast } from "sonner";
 import { GroupCard } from "@/components/groups/GroupCard";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useGroupStore } from "@/store/useGroupStore";
 
 export function GroupsPage() {
   const groups = useGroupStore((state) => state.groups);
+  const joinGroup = useGroupStore((state) => state.joinGroup);
+  const navigate = useNavigate();
+  const [inviteCode, setInviteCode] = useState("");
+
+  const handleJoin = () => {
+    const group = joinGroup(inviteCode);
+    if (!group) {
+      toast.error("Invite code not found.");
+      return;
+    }
+
+    toast.success(`Joined ${group.name}`);
+    setInviteCode("");
+    navigate({ to: `/groups/${group.id}` });
+  };
 
   return (
     <div className="pb-6">
@@ -23,13 +42,33 @@ export function GroupsPage() {
       /> 
 
       <div className="space-y-3 px-4">
+        <section className="rounded-[20px] border border-[var(--saj-border)] bg-[var(--saj-surface)] p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--saj-muted)]">
+            Join with invite code
+          </p>
+          <p className="mt-1 text-[12px] leading-5 text-[var(--saj-muted)]">
+            Ask the group leader for their invite code. Once you join, shared expenses, reports, and analytics will be available in the same workspace.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Input
+              value={inviteCode}
+              onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
+              placeholder="SAJHA-XXXX"
+              className="font-mono tracking-wider"
+            />
+            <Button type="button" onClick={handleJoin} disabled={!inviteCode.trim()}>
+              Join
+            </Button>
+          </div>
+        </section>
+
         {groups.length > 0 ? (
           groups.map((group) => <GroupCard key={group.id} group={group} />)
         ) : (
           <div className="rounded-[20px] border border-[var(--saj-border)] bg-[var(--saj-surface)] p-5 text-center shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
             <p className="text-[15px] font-semibold text-[var(--saj-text)]">No groups yet</p>
             <p className="mt-1 text-[12px] text-[var(--saj-muted)]">
-              Create your first group to start tracking shared budgets and expenses.
+              Create a group if you are the leader, or join one with an invite code.
             </p>
           </div>
         )}

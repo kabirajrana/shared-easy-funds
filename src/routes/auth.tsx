@@ -10,7 +10,6 @@ import { getInitials } from "@/lib/utils";
 import type { User } from "@/lib/types";
 import { useUserStore } from "@/store/useUserStore";
 import { useGroupStore } from "@/store/useGroupStore";
-import { useExpenseStore } from "@/store/useExpenseStore";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Auth — Sajha" }] }),
@@ -20,6 +19,7 @@ export const Route = createFileRoute("/auth")({
 function AuthPage() {
   const { user, hydrated, setUser, setGroup } = useSession();
   const signInUser = useUserStore((state) => state.signIn);
+  const groups = useGroupStore((state) => state.groups);
   const [mode, setMode] = useState("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -28,7 +28,7 @@ function AuthPage() {
   const navigate = useNavigate();
 
   if (hydrated && user) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={groups.length > 0 ? "/" : "/groups"} replace />;
   }
 
   const handleSubmit = (event: FormEvent) => {
@@ -63,16 +63,9 @@ function AuthPage() {
 
     setUser(nextUser);
     signInUser(nextUser);
-    if (mode === "signup") {
-      useGroupStore.getState().resetWorkspace();
-      useExpenseStore.getState().resetWorkspace();
-    } else {
-      useGroupStore.getState().hydrateWorkspace();
-      useExpenseStore.getState().hydrateWorkspace();
-    }
     setGroup(null);
     toast.success(mode === "login" ? "Welcome back" : "Account created");
-    navigate({ to: "/" });
+    navigate({ to: mode === "signup" ? "/groups" : groups.length > 0 ? "/" : "/groups" });
   };
 
   return (

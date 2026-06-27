@@ -12,7 +12,7 @@ const items = [
 export function BottomNav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
 
-  if (pathname === "/auth") return null;
+  if (pathname === "/auth" || pathname === "/onboarding") return null;
 
   const isActive = (path: string) => (path === "/" ? pathname === "/" : pathname.startsWith(path));
 

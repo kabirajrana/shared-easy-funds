@@ -1,9 +1,8 @@
 import { create } from "zustand";
 import { generateInviteCode } from "@/utils/inviteCode";
 import type { Group, User } from "@/types";
-import { demoGroups, demoUsers } from "@/store/seed";
+import { useUserStore } from "@/store/useUserStore";
 
-const LS_CURRENT_USER = "sajha.currentUser";
 const GROUPS_PREFIX = "sajha.groups";
 const MEMBERS_PREFIX = "sajha.groupMembers";
 const ACTIVE_PREFIX = "sajha.activeGroup";
@@ -29,68 +28,43 @@ type GroupState = {
   generateInviteCode: () => string;
   setActiveGroupId: (groupId: string) => void;
   updateGroup: (groupId: string, patch: Partial<Group>) => void;
+  joinGroup: (inviteCode: string) => Group | undefined;
 };
-
-const seedMembers: Record<string, User[]> = {
-  "g-flat4b": demoUsers.slice(0, 4),
-  "g-dashain": demoUsers.slice(0, 6),
-  "g-pokhara": [demoUsers[0], demoUsers[2], demoUsers[3], demoUsers[4]],
-};
-
-function getCurrentUserId() {
-  if (typeof window === "undefined") return "";
-  try {
-    const raw = localStorage.getItem(LS_CURRENT_USER);
-    if (!raw) return "";
-    const parsed = JSON.parse(raw) as { id?: string } | null;
-    return parsed?.id ?? "";
-  } catch {
-    return "";
-  }
-}
-
-function storageKey(prefix: string, userId: string) {
-  return `${prefix}:${userId || "guest"}`;
-}
 
 function loadWorkspace() {
   if (typeof window === "undefined") {
     return {
-      groups: demoGroups,
-      groupMembers: seedMembers,
-      activeGroupId: demoGroups[0]?.id ?? "",
+      groups: [],
+      groupMembers: {},
+      activeGroupId: "",
     };
   }
 
-  const userId = getCurrentUserId();
-  const allowDemoSeed = userId === demoUsers[0].id;
-
   try {
-    const rawGroups = localStorage.getItem(storageKey(GROUPS_PREFIX, userId));
-    const rawMembers = localStorage.getItem(storageKey(MEMBERS_PREFIX, userId));
-    const rawActive = localStorage.getItem(storageKey(ACTIVE_PREFIX, userId));
+    const rawGroups = localStorage.getItem(GROUPS_PREFIX);
+    const rawMembers = localStorage.getItem(MEMBERS_PREFIX);
+    const rawActive = localStorage.getItem(ACTIVE_PREFIX);
 
     return {
-      groups: rawGroups ? (JSON.parse(rawGroups) as Group[]) : allowDemoSeed ? demoGroups : [],
-      groupMembers: rawMembers ? (JSON.parse(rawMembers) as Record<string, User[]>) : allowDemoSeed ? seedMembers : {},
-      activeGroupId: rawActive ?? (allowDemoSeed ? demoGroups[0]?.id ?? "" : ""),
+      groups: rawGroups ? (JSON.parse(rawGroups) as Group[]) : [],
+      groupMembers: rawMembers ? (JSON.parse(rawMembers) as Record<string, User[]>) : {},
+      activeGroupId: rawActive ?? "",
     };
   } catch {
     return {
-      groups: allowDemoSeed ? demoGroups : [],
-      groupMembers: allowDemoSeed ? seedMembers : {},
-      activeGroupId: allowDemoSeed ? demoGroups[0]?.id ?? "" : "",
+      groups: [],
+      groupMembers: {},
+      activeGroupId: "",
     };
   }
 }
 
 function persistWorkspace(state: Pick<GroupState, "groups" | "groupMembers" | "activeGroupId">) {
   if (typeof window === "undefined") return;
-  const userId = getCurrentUserId();
   try {
-    localStorage.setItem(storageKey(GROUPS_PREFIX, userId), JSON.stringify(state.groups));
-    localStorage.setItem(storageKey(MEMBERS_PREFIX, userId), JSON.stringify(state.groupMembers));
-    localStorage.setItem(storageKey(ACTIVE_PREFIX, userId), state.activeGroupId);
+    localStorage.setItem(GROUPS_PREFIX, JSON.stringify(state.groups));
+    localStorage.setItem(MEMBERS_PREFIX, JSON.stringify(state.groupMembers));
+    localStorage.setItem(ACTIVE_PREFIX, state.activeGroupId);
   } catch {}
 }
 
@@ -124,7 +98,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       return next;
     }),
   createGroup: ({ name, avatarColor, avatarImage, targetDayOfMonth, targetDate, memberEmails, paymentQR, leader }) => {
-    const owner = leader ?? demoUsers[0];
+    const owner = leader ?? useUserStore.getState().currentUser;
     const group: Group = {
       id: crypto.randomUUID(),
       name,
@@ -168,7 +142,40 @@ export const useGroupStore = create<GroupState>((set, get) => ({
 
     return group;
   },
-  joinGroup: (inviteCode) => get().groups.find((group) => group.inviteCode === inviteCode),
+  joinGroup: (inviteCode) => {
+    const nextCode = inviteCode.trim().toUpperCase();
+    const group = get().groups.find((entry) => entry.inviteCode === nextCode);
+    if (!group) return undefined;
+
+    const currentUser = useUserStore.getState().currentUser;
+
+    set((state) => {
+      const members = state.groupMembers[group.id] ?? [];
+      const nextMembers = members.some((member) => member.id === currentUser.id) ? members : [...members, currentUser];
+      const next = {
+        ...state,
+        groupMembers: {
+          ...state.groupMembers,
+          [group.id]: nextMembers,
+        },
+        groups: state.groups.map((entry) =>
+          entry.id === group.id
+            ? {
+                ...entry,
+                memberIds: entry.memberIds.includes(currentUser.id) ? entry.memberIds : [...entry.memberIds, currentUser.id],
+                memberCount: nextMembers.length,
+                lastUpdated: new Date().toISOString().slice(0, 10),
+              }
+            : entry,
+        ),
+        activeGroupId: group.id,
+      };
+      persistWorkspace(next);
+      return next;
+    });
+
+    return group;
+  },
   addMember: (groupId, email) =>
     set((state) => {
       const member: User = {

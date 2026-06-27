@@ -17,7 +17,7 @@ type Mode = "solo" | "create" | "join";
 
 function Onboarding() {
   const { user, setGroup } = useSession();
-  const [mode, setMode] = useState<Mode>("create");
+  const [mode, setMode] = useState<Mode>("join");
   const [name, setName] = useState("");
   const [target, setTarget] = useState(40000);
   const [targetDayOfMonth, setTargetDayOfMonth] = useState(5);

@@ -1,10 +1,9 @@
 import { create } from "zustand";
 import type { Expense } from "@/types";
-import { demoExpenses } from "@/store/seed";
 import { formatCurrency } from "@/utils/formatCurrency";
 
 const LS_CURRENT_USER = "sajha.currentUser";
-const EXPENSES_PREFIX = "sajha.expenses";
+const EXPENSES_KEY = "sajha.expenses";
 
 type MonthlySummary = {
   totalSpent: number;
@@ -39,27 +38,32 @@ function getCurrentUserId() {
   }
 }
 
-function storageKey(userId: string) {
-  return `${EXPENSES_PREFIX}:${userId || "guest"}`;
+function getCurrentUserBudget() {
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = localStorage.getItem(LS_CURRENT_USER);
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw) as { monthlyBudget?: number } | null;
+    return typeof parsed?.monthlyBudget === "number" ? parsed.monthlyBudget : 0;
+  } catch {
+    return 0;
+  }
 }
 
 function loadExpenses() {
-  if (typeof window === "undefined") return demoExpenses;
-  const userId = getCurrentUserId();
-  const allowDemoSeed = userId === "u1";
+  if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(storageKey(userId));
-    return raw ? (JSON.parse(raw) as Expense[]) : allowDemoSeed ? demoExpenses : [];
+    const raw = localStorage.getItem(EXPENSES_KEY);
+    return raw ? (JSON.parse(raw) as Expense[]) : [];
   } catch {
-    return allowDemoSeed ? demoExpenses : [];
+    return [];
   }
 }
 
 function persistExpenses(expenses: Expense[]) {
   if (typeof window === "undefined") return;
-  const userId = getCurrentUserId();
   try {
-    localStorage.setItem(storageKey(userId), JSON.stringify(expenses));
+    localStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses));
   } catch {}
 }
 
@@ -94,16 +98,16 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
   getMonthlySummary: (userId) => {
     const relevant = get().expenses.filter((expense) => expense.paidById === userId || expense.splits.some((split) => split.userId === userId));
-    const totalSpent = relevant.reduce((sum, expense) => sum + expense.amount, 0);
-    const budget = 45000;
-    const totalIncome = 73000;
+    const totalSpent = relevant.filter((expense) => expense.type !== "income").reduce((sum, expense) => sum + expense.amount, 0);
+    const totalIncome = relevant.filter((expense) => expense.type === "income").reduce((sum, expense) => sum + expense.amount, 0);
+    const budget = getCurrentUserBudget();
     const totalSaved = totalIncome - totalSpent;
     return {
       totalSpent,
       totalIncome,
       totalSaved,
       budget,
-      budgetUsed: Math.round((totalSpent / budget) * 100),
+      budgetUsed: budget > 0 ? Math.round((totalSpent / budget) * 100) : 0,
       daysLeft: 19,
       formattedSpent: formatCurrency(totalSpent),
     };
