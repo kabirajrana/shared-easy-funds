@@ -87,6 +87,29 @@ const LS_TXS = "sajha.transactions";
 const LS_NOTIFS = "sajha.notifications";
 const LS_CURRENT_USER = "sajha.currentUserId";
 
+type StoredGroupLike = Partial<Group> & {
+  inviteCode?: string;
+  invite_code?: string;
+  leaderId?: string;
+  leader_id?: string;
+  monthlyTarget?: number;
+  monthly_target?: number;
+  targetDayOfMonth?: number;
+  target_day_of_month?: number;
+  avatarColor?: string;
+  avatar_color?: string;
+  avatarImage?: string;
+  avatar_url?: string;
+  paymentQR?: {
+    provider?: string;
+    name?: string;
+    qrImage?: string;
+  };
+  qr_image_url?: string;
+  qr_label?: string;
+  solo?: boolean;
+};
+
 function load<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
@@ -120,6 +143,42 @@ const persistNotifs = () => save(LS_NOTIFS, notifications);
 const iso = (d: Date) => d.toISOString();
 const delay = <T,>(data: T, ms = 120) =>
   new Promise<T>((r) => setTimeout(() => r(data), ms));
+
+function normalizeGroup(raw: StoredGroupLike | unknown): Group | null {
+  if (!raw || typeof raw !== "object") return null;
+  const group = raw as StoredGroupLike;
+  const inviteCode = group.inviteCode ?? group.invite_code;
+  const leaderId = group.leaderId ?? group.leader_id;
+  if (typeof inviteCode !== "string" || typeof leaderId !== "string") return null;
+
+  return {
+    id: String(group.id ?? ""),
+    name: String(group.name ?? "My group"),
+    invite_code: inviteCode,
+    leader_id: leaderId,
+    monthly_target: Number(group.monthly_target ?? group.monthlyTarget ?? 0),
+    target_day_of_month: group.target_day_of_month ?? group.targetDayOfMonth,
+    qr_image_url: group.qr_image_url ?? group.paymentQR?.qrImage,
+    qr_label: group.qr_label ?? group.paymentQR?.name,
+    avatar_url: group.avatar_url ?? group.avatarImage,
+    solo: !!group.solo,
+  };
+}
+
+function loadGroupsSnapshot(): Group[] {
+  const rawGroups = load<unknown[]>(LS_GROUPS, []);
+  return rawGroups.map(normalizeGroup).filter(Boolean) as Group[];
+}
+
+function refreshGroups() {
+  groups = loadGroupsSnapshot();
+  return groups;
+}
+
+function refreshUsers() {
+  users = load<User[]>(LS_USERS, []);
+  return users;
+}
 
 function genInvite(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -169,6 +228,7 @@ export const api = {
   // ---------- AUTH ----------
   async login(email: string, password: string): Promise<User> {
     if (USE_MOCK) {
+      refreshUsers();
       const e = email.trim().toLowerCase();
       const u = users.find((x) => x.email.toLowerCase() === e);
       if (!u) throw new Error("No account found for that email. Please sign up first.");
@@ -189,6 +249,7 @@ export const api = {
 
   async register(name: string, email: string, password: string): Promise<User> {
     if (USE_MOCK) {
+      refreshUsers();
       const e = email.trim().toLowerCase();
       if (!name.trim()) throw new Error("Please enter your full name.");
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error("Please enter a valid email.");
@@ -218,6 +279,7 @@ export const api = {
   ): Promise<Group> {
     if (USE_MOCK) {
       if (!currentUserId) throw new Error("Please sign in first.");
+      refreshUsers();
       const g: Group = {
         id: `g${Date.now()}`,
         name: name.trim() || "My group",
@@ -274,7 +336,7 @@ export const api = {
   async joinGroup(invite_code: string): Promise<Group> {
     if (USE_MOCK) {
       if (!currentUserId) throw new Error("Please sign in first.");
-      const g = groups.find(
+      const g = refreshGroups().find(
         (x) => x.invite_code.toUpperCase() === invite_code.trim().toUpperCase()
       );
       if (!g) throw new Error("Invalid invite code. Ask the leader to share it again.");
@@ -299,7 +361,8 @@ export const api = {
   async sendGroupInvite(groupId: string, email: string): Promise<void> {
     if (USE_MOCK) {
       if (!currentUserId) throw new Error("Please sign in first.");
-      const g = groups.find((x) => x.id === groupId);
+      refreshUsers();
+      const g = refreshGroups().find((x) => x.id === groupId);
       if (!g) throw new Error("Group not found");
       const targetUser = users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
       if (!targetUser) throw new Error("No registered user with that email.");
@@ -335,7 +398,7 @@ export const api = {
       const n = notifications.find((item) => item.id === notificationId);
       if (!n?.meta || n.meta.kind !== "group_invite") return delay(undefined);
       const targetUser = getCurrentUser();
-      const g = groups.find((group) => group.id === n.meta!.group_id || group.invite_code === n.meta!.invite_code);
+      const g = refreshGroups().find((group) => group.id === n.meta!.group_id || group.invite_code === n.meta!.invite_code);
       if (g && targetUser) {
         const already = memberships.some((m) => m.group_id === g.id && m.user_id === targetUser.id);
         if (!already) {
@@ -358,7 +421,7 @@ export const api = {
 
   async getGroup(id: string): Promise<Group> {
     if (USE_MOCK) {
-      const g = groups.find((x) => x.id === id);
+      const g = refreshGroups().find((x) => x.id === id);
       if (!g) throw new Error("Group not found");
       return delay(g);
     }
@@ -367,7 +430,7 @@ export const api = {
 
   async updateGroup(id: string, patch: Partial<Group>): Promise<Group> {
     if (USE_MOCK) {
-      const g = groups.find((x) => x.id === id);
+      const g = refreshGroups().find((x) => x.id === id);
       if (!g) throw new Error("Group not found");
       Object.assign(g, patch);
       persistGroups();
@@ -378,6 +441,7 @@ export const api = {
 
   async myGroups(): Promise<Group[]> {
     if (USE_MOCK) {
+      refreshGroups();
       const ids = memberships.filter((m) => m.user_id === currentUserId).map((m) => m.group_id);
       return delay(groups.filter((g) => ids.includes(g.id)));
     }
@@ -387,6 +451,7 @@ export const api = {
   // ---------- MEMBERS ----------
   async getMembers(groupId: string): Promise<MemberWithUser[]> {
     if (USE_MOCK) {
+      refreshUsers();
       const month = new Date().getMonth();
       const year = new Date().getFullYear();
       const out = memberships
@@ -413,6 +478,7 @@ export const api = {
 
   async addMemberByEmail(groupId: string, email: string): Promise<MemberWithUser> {
     if (USE_MOCK) {
+      refreshUsers();
       const u = users.find((x) => x.email.toLowerCase() === email.toLowerCase());
       if (!u) throw new Error("No registered user with that email. Ask them to sign up first.");
       if (memberships.some((m) => m.group_id === groupId && m.user_id === u.id)) {
@@ -431,7 +497,7 @@ export const api = {
       memberships.forEach((m) => {
         if (m.group_id === groupId) m.role = m.user_id === userId ? "leader" : "member";
       });
-      const g = groups.find((x) => x.id === groupId);
+      const g = refreshGroups().find((x) => x.id === groupId);
       if (g) g.leader_id = userId;
       persistMembers();
       persistGroups();
@@ -570,7 +636,7 @@ export const api = {
   // ---------- QR ----------
   async uploadQr(groupId: string, image_url: string, label: string): Promise<Group> {
     if (USE_MOCK) {
-      const g = groups.find((x) => x.id === groupId);
+      const g = refreshGroups().find((x) => x.id === groupId);
       if (!g) throw new Error("Group not found");
       g.qr_image_url = image_url;
       g.qr_label = label;
@@ -582,7 +648,7 @@ export const api = {
 
   async getQr(groupId: string): Promise<{ qr_image_url?: string; qr_label?: string }> {
     if (USE_MOCK) {
-      const g = groups.find((x) => x.id === groupId);
+      const g = refreshGroups().find((x) => x.id === groupId);
       return delay({ qr_image_url: g?.qr_image_url, qr_label: g?.qr_label });
     }
     return http(`/api/groups/${groupId}/qr`);
@@ -610,10 +676,11 @@ export const api = {
 
   // helpers
   getUserById(id: string): User | undefined {
+    refreshUsers();
     return users.find((u) => u.id === id);
   },
   allUsers(): User[] {
-    return users;
+    return refreshUsers();
   },
 };
 

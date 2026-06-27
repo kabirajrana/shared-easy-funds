@@ -52,7 +52,7 @@ export function InviteCodeCard({
           }}
           disabled={!email.trim()}
         >
-          Add
+          Invite
         </Button>
       </div>
     </div>

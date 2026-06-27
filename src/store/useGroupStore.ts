@@ -130,6 +130,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       return next;
     }),
   createGroup: ({ name, avatarColor, avatarImage, targetDayOfMonth, targetDate, memberEmails, paymentQR, leader }) => {
+    const current = loadWorkspace();
     const owner = leader ?? useUserStore.getState().currentUser;
     const group: Group = {
       id: crypto.randomUUID(),
@@ -149,11 +150,11 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       balance: 0,
     };
 
-    set((state) => {
+    set(() => {
       const next = {
-        groups: [group, ...state.groups],
+        groups: [group, ...current.groups],
         groupMembers: {
-        ...state.groupMembers,
+        ...current.groupMembers,
         [group.id]: [
           owner,
           ...memberEmails.map((email, index) => ({
@@ -176,7 +177,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
   },
   joinGroup: (inviteCode) => {
     const nextCode = inviteCode.trim().toUpperCase();
-    const group = get().groups.find((entry) => entry.inviteCode === nextCode);
+    const current = loadWorkspace();
+    set(() => current);
+    const group = current.groups.find((entry) => entry.inviteCode === nextCode);
     if (!group) return undefined;
 
     const currentUser = useUserStore.getState().currentUser;
