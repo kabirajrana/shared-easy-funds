@@ -9,6 +9,7 @@ import { useSession } from "@/lib/session";
 import { useExpenseStore } from "@/store/useExpenseStore";
 import { useGroupStore } from "@/store/useGroupStore";
 import { formatNPR } from "@/lib/utils";
+import { InstallAppBanner } from "@/components/pwa/InstallAppBanner";
 import type { User } from "@/types";
 
 const EMPTY_MEMBERS: User[] = [];
@@ -55,6 +56,11 @@ export function HomePage() {
 
   return (
     <div className="min-h-full bg-[var(--saj-bg)]">
+      <InstallAppBanner
+        forceVisible
+        autoHideMs={6000}
+        className="fixed left-1/2 top-4 z-30 w-[min(92vw,28rem)] -translate-x-1/2 border-white/20"
+      />
       <header className="sticky top-0 z-20 border-b border-[0.5px] border-[var(--saj-border)] bg-[var(--saj-surface)] px-4 py-4">
         <div className="flex items-center gap-3">
           <SajhaAvatar name={user?.name ?? "Ram Sharma"} src={user?.avatarImage} size="md" />

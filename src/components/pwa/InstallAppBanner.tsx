@@ -8,9 +8,10 @@ const SEEN_KEY = "sajha.install-banner-seen";
 type InstallAppBannerProps = {
   className?: string;
   forceVisible?: boolean;
+  autoHideMs?: number;
 };
 
-export function InstallAppBanner({ className, forceVisible = false }: InstallAppBannerProps) {
+export function InstallAppBanner({ className, forceVisible = false, autoHideMs }: InstallAppBannerProps) {
   const [visible, setVisible] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
@@ -60,6 +61,16 @@ export function InstallAppBanner({ className, forceVisible = false }: InstallApp
     };
   }, [forceVisible]);
 
+  useEffect(() => {
+    if (!visible || !autoHideMs) return;
+
+    const timer = window.setTimeout(() => {
+      setVisible(false);
+    }, autoHideMs);
+
+    return () => window.clearTimeout(timer);
+  }, [autoHideMs, visible]);
+
   const shouldShowHint = firstVisit && !deferredPrompt;
 
   if (!visible || installed) return null;
@@ -88,7 +99,7 @@ export function InstallAppBanner({ className, forceVisible = false }: InstallApp
   return (
     <div
       className={cn(
-        "rounded-[20px] border border-[rgba(26,107,90,0.18)] bg-[linear-gradient(135deg,rgba(26,107,90,0.10),rgba(255,255,255,1))] p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]",
+        "rounded-[20px] border border-[rgba(26,107,90,0.18)] bg-[linear-gradient(135deg,rgba(26,107,90,0.10),rgba(255,255,255,1))] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.18)]",
         className,
       )}
     >
