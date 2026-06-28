@@ -19,6 +19,9 @@ import process from "node:process";
 export function getServerConfig() {
   return {
     nodeEnv: process.env.NODE_ENV,
+    appUrl: process.env.APP_URL ?? process.env.VITE_APP_URL ?? "",
+    resendApiKey: process.env.RESEND_API_KEY ?? "",
+    resendFromEmail: process.env.RESEND_FROM_EMAIL ?? "",
     // Add server-only values here, e.g.:
     //   databaseUrl: process.env.DATABASE_URL,
     //   stripeSecretKey: process.env.STRIPE_SECRET_KEY,

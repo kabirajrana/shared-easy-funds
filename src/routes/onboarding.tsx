@@ -30,6 +30,7 @@ function Onboarding() {
   const navigate = useNavigate();
   const createGroup = useGroupStore((state) => state.createGroup);
   const joinGroup = useGroupStore((state) => state.joinGroup);
+  const hydrateWorkspace = useGroupStore((state) => state.hydrateWorkspace);
   const updateBudget = useUserStore((state) => state.updateBudget);
 
   if (!user) return <Navigate to="/auth" replace />;
@@ -103,7 +104,9 @@ function Onboarding() {
         }
         navigate({ to: "/" });
       } else {
+        await api.joinGroup(code);
         const g = joinGroup(code);
+        hydrateWorkspace();
         if (!g) {
           toast.error("Invalid invite code. Ask the leader to share it again.");
           return;

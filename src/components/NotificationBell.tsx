@@ -1,41 +1,44 @@
-import * as Popover from "@radix-ui/react-popover";
 import { useEffect } from "react";
-import { Bell } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-
+import * as Popover from "@radix-ui/react-popover";
+import { Bell, Sparkles } from "lucide-react";
 import { api } from "@/services/api";
 import { NotificationItem } from "@/components/NotificationItem";
-import { useNotificationStore } from "@/stores/notificationStore";
+import { useNotificationStore } from "@/store/notificationStore";
 
 export function NotificationBell() {
   const queryClient = useQueryClient();
-  const setUnreadCount = useNotificationStore((state) => state.setUnreadCount);
+  const { unreadCount, setUnreadCount } = useNotificationStore();
+
   const { data: notifications = [] } = useQuery({
     queryKey: ["notifications"],
     queryFn: () => api.getNotifications(),
     refetchInterval: 30000,
   });
 
-  const unreadCount = notifications.filter((notification: any) => !(notification.read ?? notification.is_read)).length;
-
   useEffect(() => {
-    setUnreadCount(unreadCount);
-  }, [setUnreadCount, unreadCount]);
+    setUnreadCount(notifications.filter((notification) => !(notification.read || notification.is_read)).length);
+  }, [notifications, setUnreadCount]);
 
   const markAllRead = useMutation({
-    mutationFn: () => api.markAllNotificationsRead(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    mutationFn: () => api.markNotificationsRead(),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      setUnreadCount(0);
     },
   });
 
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button className="relative grid h-9 w-9 place-items-center rounded-full hover:bg-muted" aria-label="Notifications">
+        <button
+          type="button"
+          className="relative grid h-9 w-9 place-items-center rounded-full hover:bg-muted"
+          aria-label="Notifications"
+        >
           <Bell className="h-5 w-5" />
           {unreadCount > 0 ? (
-            <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+            <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-[#0A7C53] px-1 text-[9px] font-bold text-white">
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           ) : null}
@@ -44,32 +47,34 @@ export function NotificationBell() {
 
       <Popover.Portal>
         <Popover.Content
-          className="z-50 w-[20rem] overflow-hidden rounded-3xl border border-white/10 bg-[#132033] p-0 shadow-2xl"
-          sideOffset={10}
           align="end"
+          sideOffset={10}
+          className="z-50 w-[min(92vw,22rem)] overflow-hidden rounded-[24px] border border-white/10 bg-[#101827] shadow-[0_24px_50px_rgba(0,0,0,0.45)]"
         >
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-            <h3 className="text-sm font-semibold text-white">Notifications</h3>
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-white/45">Inbox</p>
+              <h3 className="text-[15px] font-semibold text-white">Notifications</h3>
+            </div>
             {unreadCount > 0 ? (
               <button
+                type="button"
                 onClick={() => markAllRead.mutate()}
-                className="text-xs font-medium text-green-400 hover:underline"
-                disabled={markAllRead.isPending}
+                className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold text-white/80 hover:bg-white/10"
               >
-                {markAllRead.isPending ? "Updating..." : "Mark all read"}
+                <Sparkles className="h-3.5 w-3.5" />
+                Mark all read
               </button>
             ) : null}
           </div>
 
-          <div className="max-h-96 overflow-y-auto">
-            {notifications.length === 0 ? (
-              <p className="px-4 py-10 text-center text-sm text-white/50">No notifications yet</p>
+          <div className="max-h-[28rem] overflow-y-auto">
+            {notifications.length > 0 ? (
+              notifications.map((notification) => (
+                <NotificationItem key={notification.id} notification={notification} compact />
+              ))
             ) : (
-              <div className="divide-y divide-white/5">
-                {notifications.map((notification: any) => (
-                  <NotificationItem key={notification.id} notification={notification} />
-                ))}
-              </div>
+              <div className="px-4 py-10 text-center text-[13px] text-white/45">No notifications yet</div>
             )}
           </div>
         </Popover.Content>

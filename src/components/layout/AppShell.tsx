@@ -1,8 +1,6 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { Home, ListChecks, BarChart3, Users, Plus, ArrowLeft, Upload } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { api } from "@/services/api";
+import { useRef, useState, type ReactNode } from "react";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { useGroupStore } from "@/store/useGroupStore";
@@ -41,7 +39,6 @@ export function AppShell({
   hideNav?: boolean;
 }) {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { user, group, role, setGroup } = useSession();
   const updateGroup = useGroupStore((state) => state.updateGroup);
@@ -100,35 +97,6 @@ export function AppShell({
     toast.success("Group budget saved");
   };
 
-  const { data: notifs } = useQuery({
-    queryKey: ["notifications"],
-    queryFn: api.getNotifications,
-    enabled: !!user,
-    refetchInterval: 3000,
-  });
-  const unread = notifs?.filter((n) => !n.read).length ?? 0;
-
-  useEffect(() => {
-    const refreshNotifications = () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications"] });
-    };
-
-    const refreshOnStorage = (event: StorageEvent) => {
-      if (event.key === "sajha.notifications" || event.key === "sajha.currentUserId") {
-        refreshNotifications();
-      }
-    };
-
-    window.addEventListener("sajha:notifications-updated", refreshNotifications as EventListener);
-    window.addEventListener("storage", refreshOnStorage);
-    window.addEventListener("focus", refreshNotifications);
-    return () => {
-      window.removeEventListener("sajha:notifications-updated", refreshNotifications as EventListener);
-      window.removeEventListener("storage", refreshOnStorage);
-      window.removeEventListener("focus", refreshNotifications);
-    };
-  }, [queryClient]);
-
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col bg-background">
       <div className="sticky top-0 z-30 bg-background/85 backdrop-blur" style={{ paddingTop: "env(safe-area-inset-top)" }}>
@@ -169,7 +137,7 @@ export function AppShell({
 
       <main className={cn("flex-1", !hideNav && "pb-24")}>{children}</main>
 
-      {!hideNav && <BottomNav pathname={pathname} unread={unread} />}
+      {!hideNav && <BottomNav pathname={pathname} />}
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-sm">
@@ -239,7 +207,7 @@ export function AppShell({
   );
 }
 
-function BottomNav({ pathname }: { pathname: string; unread: number }) {
+function BottomNav({ pathname }: { pathname: string }) {
   const items = [
     { to: "/", label: "Home", icon: Home },
     { to: "/transactions", label: "Transactions", icon: ListChecks },

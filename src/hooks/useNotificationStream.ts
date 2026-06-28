@@ -1,69 +1,72 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSession } from "@/lib/session";
+import { SHARED_BACKEND_ENABLED } from "@/services/sharedBackend";
 
-const NOTIFICATION_EVENT = "sajha:notification";
 const NOTIFICATIONS_UPDATED_EVENT = "sajha:notifications-updated";
+const NOTIFICATION_EVENT = "sajha:notification";
 
-function isVisibleToCurrentUser(notification: any, userId?: string, email?: string) {
-  const recipientId = notification?.recipient_id ?? notification?.user_id;
-  const recipientEmail = (notification?.recipient_email ?? notification?.user_email)?.toLowerCase();
-  const currentEmail = email?.toLowerCase();
-  return (
-    !recipientId ||
-    recipientId === userId ||
-    (!!currentEmail && recipientEmail === currentEmail)
-  );
+function getNotificationStreamUrl() {
+  if (SHARED_BACKEND_ENABLED) return "";
+  const base = (import.meta as any).env?.VITE_API_BASE_URL ?? "";
+  if (!base) return "";
+  return `${base.replace(/\/$/, "")}/api/notifications/stream`;
 }
 
 export function useNotificationStream() {
   const queryClient = useQueryClient();
   const { user } = useSession();
+  const retryRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || typeof window === "undefined") return;
 
-    const refreshNotifications = () => {
+    const refresh = () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
-    };
-
-    const handleNotification = (event: Event) => {
-      const detail = (event as CustomEvent).detail;
-      if (!isVisibleToCurrentUser(detail, user.id, user.email)) return;
-
-      queryClient.setQueryData(["notifications"], (old: unknown) => {
-        const existing = Array.isArray(old) ? old : [];
-        const next = [detail, ...existing.filter((item: any) => item?.id !== detail?.id)];
-        return next;
-      });
-      refreshNotifications();
     };
 
     const handleStorage = (event: StorageEvent) => {
       if (event.key === "sajha.notifications" || event.key === "sajha.group_invitations") {
-        refreshNotifications();
+        refresh();
       }
     };
 
-    const handleBroadcast = () => refreshNotifications();
-    const channel = "BroadcastChannel" in window ? new BroadcastChannel("sajha:notifications") : null;
-    if (channel) {
-      channel.onmessage = (event) => {
-        if (event.data?.type === NOTIFICATIONS_UPDATED_EVENT || event.data?.type === NOTIFICATION_EVENT) {
-          refreshNotifications();
+    const handleEvent = () => refresh();
+
+    window.addEventListener(NOTIFICATIONS_UPDATED_EVENT, handleEvent as EventListener);
+    window.addEventListener(NOTIFICATION_EVENT, handleEvent as EventListener);
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("focus", refresh);
+
+    const streamUrl = getNotificationStreamUrl();
+    let source: EventSource | null = null;
+    if (streamUrl && "EventSource" in window) {
+      source = new EventSource(streamUrl, { withCredentials: true });
+      source.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data) as { type?: string };
+          if (data.type === "notification") refresh();
+        } catch {
+          refresh();
         }
+      };
+      source.onerror = () => {
+        source?.close();
+        source = null;
+        if (retryRef.current) window.clearTimeout(retryRef.current);
+        retryRef.current = window.setTimeout(() => refresh(), 5000);
       };
     }
 
-    window.addEventListener(NOTIFICATION_EVENT, handleNotification as EventListener);
-    window.addEventListener(NOTIFICATIONS_UPDATED_EVENT, handleBroadcast);
-    window.addEventListener("storage", handleStorage);
+    refresh();
 
     return () => {
-      channel?.close();
-      window.removeEventListener(NOTIFICATION_EVENT, handleNotification as EventListener);
-      window.removeEventListener(NOTIFICATIONS_UPDATED_EVENT, handleBroadcast);
+      window.removeEventListener(NOTIFICATIONS_UPDATED_EVENT, handleEvent as EventListener);
+      window.removeEventListener(NOTIFICATION_EVENT, handleEvent as EventListener);
       window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("focus", refresh);
+      source?.close();
+      if (retryRef.current) window.clearTimeout(retryRef.current);
     };
   }, [queryClient, user]);
 }

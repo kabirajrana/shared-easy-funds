@@ -16,6 +16,7 @@ import { useGroupStore } from "@/store/useGroupStore";
 export function GroupsPage() {
   const groups = useGroupStore((state) => state.groups);
   const joinGroup = useGroupStore((state) => state.joinGroup);
+  const hydrateWorkspace = useGroupStore((state) => state.hydrateWorkspace);
   const deleteGroup = useGroupStore((state) => state.deleteGroup);
   const deleteGroupExpenses = useExpenseStore((state) => state.deleteGroupExpenses);
   const { user, setGroup } = useSession();
@@ -49,16 +50,21 @@ export function GroupsPage() {
     },
   });
 
-  const handleJoin = () => {
-    const group = joinGroup(inviteCode);
-    if (!group) {
-      toast.error("Invite code not found.");
-      return;
+  const handleJoin = async () => {
+    try {
+      await api.joinGroup(inviteCode);
+      const group = joinGroup(inviteCode);
+      hydrateWorkspace();
+      if (!group) {
+        toast.error("Invite code not found.");
+        return;
+      }
+      toast.success(`Joined ${group.name}`);
+      setInviteCode("");
+      navigate({ to: `/groups/${group.id}` });
+    } catch (error: any) {
+      toast.error(error?.message ?? "Invalid or expired invite code.");
     }
-
-    toast.success(`Joined ${group.name}`);
-    setInviteCode("");
-    navigate({ to: `/groups/${group.id}` });
   };
 
   return (

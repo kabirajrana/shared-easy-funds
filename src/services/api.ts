@@ -3,6 +3,15 @@
 // to localStorage so the app behaves like a real multi-user app.
 
 import { demoUsers } from "@/store/seed";
+import {
+  SHARED_BACKEND_ENABLED,
+  sharedDelete,
+  sharedInsert,
+  sharedSelect,
+  sharedSelectOne,
+  sharedUpdate,
+} from "@/services/sharedBackend";
+import { sendInviteEmail } from "@/lib/api/sendInviteEmail.functions";
 
 export interface User {
   id: string;
@@ -116,7 +125,7 @@ export interface MemberWithUser {
 }
 
 const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL ?? "";
-const USE_MOCK = !BASE_URL;
+const USE_MOCK = !BASE_URL && !SHARED_BACKEND_ENABLED;
 
 // ---------- Persistence ----------
 const LS_USERS = "sajha.users";
@@ -620,6 +629,20 @@ export const api = {
 
   // ---------- AUTH ----------
   async login(email: string, password: string): Promise<User> {
+    if (SHARED_BACKEND_ENABLED) {
+      const e = email.trim().toLowerCase();
+      const u = await sharedSelectOne<User>("users", "*", `email=eq.${encodeURIComponent(e)}`);
+      if (!u) throw new Error("No account found for that email. Please sign up first.");
+      const hash = await hashPassword(password);
+      if (u.password_hash && u.password_hash !== hash) {
+        throw new Error("Incorrect password. Please try again.");
+      }
+      if (!u.password_hash) {
+        await sharedUpdate<User>("users", `email=eq.${encodeURIComponent(e)}`, { password_hash: hash });
+      }
+      api.setCurrentUser(u.id);
+      return delay({ ...u, password_hash: undefined });
+    }
     if (USE_MOCK) {
       refreshUsers();
       const e = email.trim().toLowerCase();
@@ -641,6 +664,25 @@ export const api = {
   },
 
   async register(name: string, email: string, password: string): Promise<User> {
+    if (SHARED_BACKEND_ENABLED) {
+      const e = email.trim().toLowerCase();
+      if (!name.trim()) throw new Error("Please enter your full name.");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error("Please enter a valid email.");
+      if (password.length < 6) throw new Error("Password must be at least 6 characters.");
+      const existing = await sharedSelectOne<User>("users", "*", `email=eq.${encodeURIComponent(e)}`);
+      if (existing) {
+        throw new Error("An account with this email already exists. Try logging in.");
+      }
+      const u = {
+        id: `u_${Date.now()}`,
+        name: name.trim(),
+        email: e,
+        password_hash: await hashPassword(password),
+      };
+      await sharedInsert<User>("users", u);
+      api.setCurrentUser(u.id);
+      return delay({ ...u, password_hash: undefined });
+    }
     if (USE_MOCK) {
       refreshUsers();
       const e = email.trim().toLowerCase();
@@ -670,6 +712,51 @@ export const api = {
     monthly_target: number,
     opts?: { solo?: boolean; memberEmails?: string[]; targetDayOfMonth?: number }
   ): Promise<Group> {
+    if (SHARED_BACKEND_ENABLED) {
+      if (!currentUserId) throw new Error("Please sign in first.");
+      const g = {
+        id: `g_${Date.now()}`,
+        name: name.trim() || "My group",
+        invite_code: genInvite(),
+        leader_id: currentUserId,
+        monthly_target,
+        target_day_of_month: opts?.targetDayOfMonth,
+        solo: !!opts?.solo,
+      };
+      await sharedInsert<Group>("groups", g);
+      await sharedInsert<Membership>("memberships", {
+        user_id: currentUserId,
+        group_id: g.id,
+        role: "leader",
+        joined_at: iso(new Date()),
+      });
+
+      if (!opts?.solo && opts?.memberEmails?.length) {
+        const sender = getCurrentUser();
+        for (const email of opts.memberEmails) {
+          const targetUser = await sharedSelectOne<User>("users", "*", `email=eq.${encodeURIComponent(email.toLowerCase())}`);
+          if (targetUser?.id === currentUserId) continue;
+          const invitation = {
+            id: `inv_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+            group_id: g.id,
+            invited_by: sender?.id ?? currentUserId,
+            invited_email: targetUser?.email ?? email,
+            invited_user_id: targetUser?.id,
+            status: "pending",
+            token: g.invite_code,
+            expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            created_at: iso(new Date()),
+            updated_at: iso(new Date()),
+          };
+          await sharedInsert<GroupInvitation>("group_invitations", invitation);
+          if (targetUser) {
+            await sharedInsert<Notification>("notifications", buildGroupInviteNotification(invitation, g, sender));
+          }
+        }
+      }
+
+      return delay(g);
+    }
     if (USE_MOCK) {
       if (!currentUserId) throw new Error("Please sign in first.");
       refreshUsers();
@@ -750,6 +837,34 @@ export const api = {
   },
 
   async joinGroup(invite_code: string): Promise<Group> {
+    if (SHARED_BACKEND_ENABLED) {
+      if (!currentUserId) throw new Error("Please sign in first.");
+      const nextCode = normalizeInviteCode(invite_code);
+      const invitation = await sharedSelectOne<GroupInvitation>(
+        "group_invitations",
+        "*",
+        `token=eq.${encodeURIComponent(nextCode)}&status=eq.pending`,
+      );
+      const g = invitation
+        ? await sharedSelectOne<Group>("groups", "*", `id=eq.${encodeURIComponent(invitation.group_id)}`)
+        : await sharedSelectOne<Group>("groups", "*", `invite_code=eq.${encodeURIComponent(nextCode)}`);
+      if (!g) throw new Error("Invalid invite code. Ask the leader to share it again.");
+      if (g.solo) throw new Error("This is a solo fund and does not accept members.");
+      await sharedInsert<Membership>("memberships", {
+        user_id: currentUserId,
+        group_id: g.id,
+        role: "member",
+        joined_at: iso(new Date()),
+      });
+      if (invitation) {
+        await sharedUpdate<GroupInvitation>(
+          "group_invitations",
+          `id=eq.${encodeURIComponent(invitation.id)}`,
+          { status: "accepted", updated_at: iso(new Date()) },
+        );
+      }
+      return delay(g);
+    }
     if (USE_MOCK) {
       if (!currentUserId) throw new Error("Please sign in first.");
       const nextCode = normalizeInviteCode(invite_code);
@@ -771,6 +886,42 @@ export const api = {
   },
 
   async sendGroupInvite(groupId: string, email: string): Promise<void> {
+    if (SHARED_BACKEND_ENABLED) {
+      if (!currentUserId) throw new Error("Please sign in first.");
+      const g = await sharedSelectOne<Group>("groups", "*", `id=eq.${encodeURIComponent(groupId)}`);
+      if (!g) throw new Error("Group not found");
+      const recipientEmail = email.trim().toLowerCase();
+      const targetUser = await sharedSelectOne<User>("users", "*", `email=eq.${encodeURIComponent(recipientEmail)}`);
+      if (targetUser?.id === currentUserId) throw new Error("You cannot invite yourself.");
+      const sender = getCurrentUser();
+      const invitation = {
+        id: `inv_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+        group_id: g.id,
+        invited_by: currentUserId,
+        invited_email: recipientEmail,
+        invited_user_id: targetUser?.id,
+        status: "pending",
+        token: g.invite_code,
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        created_at: iso(new Date()),
+        updated_at: iso(new Date()),
+      };
+      await sharedInsert<GroupInvitation>("group_invitations", invitation);
+      if (targetUser) {
+        await sharedInsert<Notification>("notifications", buildGroupInviteNotification(invitation, g, sender));
+      }
+      void sendInviteEmail({
+        data: {
+          email: recipientEmail,
+          inviterName: sender?.name ?? "A group leader",
+          groupName: g.name,
+          inviteCode: g.invite_code,
+          invitationId: invitation.id,
+          groupId: g.id,
+        },
+      }).catch(() => undefined);
+      return delay(undefined);
+    }
     if (USE_MOCK) {
       if (!currentUserId) throw new Error("Please sign in first.");
       refreshUsers();
@@ -789,6 +940,16 @@ export const api = {
       if (targetUser) {
         createNotification(buildGroupInviteNotification(invitation, g, getCurrentUser()));
       }
+      void sendInviteEmail({
+        data: {
+          email: recipientEmail,
+          inviterName: getCurrentUser()?.name ?? "A group leader",
+          groupName: g.name,
+          inviteCode: g.invite_code,
+          invitationId: invitation.id,
+          groupId: g.id,
+        },
+      }).catch(() => undefined);
       return delay(undefined);
     }
     await http(`/api/groups/${groupId}/invite`, {
@@ -798,6 +959,83 @@ export const api = {
   },
 
   async acceptGroupInvite(notificationId: string): Promise<void> {
+    if (SHARED_BACKEND_ENABLED) {
+      const targetUser = getCurrentUser();
+      if (!targetUser) throw new Error("Please sign in first.");
+      const n = await sharedSelectOne<Notification>("notifications", "*", `id=eq.${encodeURIComponent(notificationId)}`);
+      if (!n?.meta || n.meta.kind !== "group_invite") return delay(undefined);
+      const invitation = await sharedSelectOne<GroupInvitation>(
+        "group_invitations",
+        "*",
+        `id=eq.${encodeURIComponent(n.meta.invitationId)}`,
+      );
+      const g = await sharedSelectOne<Group>(
+        "groups",
+        "*",
+        `id=eq.${encodeURIComponent(n.meta.group_id)}`,
+      );
+      if (!g) throw new Error("Invite group could not be found.");
+      if (invitation && invitation.status !== "pending") {
+        throw new Error("This invite has already been handled.");
+      }
+      await sharedInsert<Membership>("memberships", {
+        user_id: targetUser.id,
+        group_id: g.id,
+        role: "member",
+        joined_at: iso(new Date()),
+      });
+      if (invitation) {
+        await sharedUpdate<GroupInvitation>(
+          "group_invitations",
+          `id=eq.${encodeURIComponent(invitation.id)}`,
+          {
+            status: "accepted",
+            invited_user_id: targetUser.id,
+            updated_at: iso(new Date()),
+          },
+        );
+      }
+      await sharedUpdate<Notification>("notifications", `id=eq.${encodeURIComponent(notificationId)}`, {
+        read: true,
+        is_read: true,
+        meta: { ...(n.meta ?? {}), status: "accepted" },
+        data: { ...(n.data ?? {}), status: "accepted" },
+      });
+      if (n.meta.sender_id) {
+        await sharedInsert<Notification>("notifications", {
+          id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+          type: "invite_accepted",
+          title: `${targetUser.name} accepted your invite`,
+          body: `${targetUser.name} joined ${g.name}.`,
+          message: `${targetUser.name} joined ${g.name}.`,
+          date: iso(new Date()),
+          created_at: iso(new Date()),
+          read: false,
+          is_read: false,
+          recipient_id: n.meta.sender_id,
+          data: {
+            invitationId: n.meta.invitationId,
+            groupId: g.id,
+            groupName: g.name,
+            inviterName: targetUser.name,
+            inviteCode: g.invite_code,
+            leaderId: targetUser.id,
+            status: "accepted",
+          },
+          meta: {
+            kind: "group_invite",
+            invitationId: n.meta.invitationId,
+            group_id: g.id,
+            group_name: g.name,
+            invite_code: g.invite_code,
+            sender_id: targetUser.id,
+            sender_name: targetUser.name,
+            status: "accepted",
+          },
+        });
+      }
+      return delay(undefined);
+    }
     if (USE_MOCK) {
       refreshNotifications();
       const n = notifications.find((item) => item.id === notificationId);
@@ -866,6 +1104,67 @@ export const api = {
   },
 
   async declineGroupInvite(notificationId: string): Promise<void> {
+    if (SHARED_BACKEND_ENABLED) {
+      const targetUser = getCurrentUser();
+      if (!targetUser) throw new Error("Please sign in first.");
+      const n = await sharedSelectOne<Notification>("notifications", "*", `id=eq.${encodeURIComponent(notificationId)}`);
+      if (!n?.meta || n.meta.kind !== "group_invite") return delay(undefined);
+      const invitation = await sharedSelectOne<GroupInvitation>(
+        "group_invitations",
+        "*",
+        `id=eq.${encodeURIComponent(n.meta.invitationId)}`,
+      );
+      if (invitation && invitation.status !== "pending") {
+        throw new Error("This invite has already been handled.");
+      }
+      if (invitation) {
+        await sharedUpdate<GroupInvitation>(
+          "group_invitations",
+          `id=eq.${encodeURIComponent(invitation.id)}`,
+          { status: "declined", updated_at: iso(new Date()) },
+        );
+      }
+      await sharedUpdate<Notification>("notifications", `id=eq.${encodeURIComponent(notificationId)}`, {
+        read: true,
+        is_read: true,
+        meta: { ...(n.meta ?? {}), status: "rejected" },
+        data: { ...(n.data ?? {}), status: "declined" },
+      });
+      if (n.meta.sender_id) {
+        await sharedInsert<Notification>("notifications", {
+          id: `n${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+          type: "invite_declined",
+          title: `${targetUser.name} declined your invite`,
+          body: `${targetUser.name} did not join ${n.meta.group_name}.`,
+          message: `${targetUser.name} did not join ${n.meta.group_name}.`,
+          date: iso(new Date()),
+          created_at: iso(new Date()),
+          read: false,
+          is_read: false,
+          recipient_id: n.meta.sender_id,
+          data: {
+            invitationId: n.meta.invitationId,
+            groupId: n.meta.group_id,
+            groupName: n.meta.group_name,
+            inviterName: targetUser.name,
+            inviteCode: n.meta.invite_code,
+            leaderId: targetUser.id,
+            status: "declined",
+          },
+          meta: {
+            kind: "group_invite",
+            invitationId: n.meta.invitationId,
+            group_id: n.meta.group_id,
+            group_name: n.meta.group_name,
+            invite_code: n.meta.invite_code,
+            sender_id: targetUser.id,
+            sender_name: targetUser.name,
+            status: "rejected",
+          },
+        });
+      }
+      return delay(undefined);
+    }
     if (USE_MOCK) {
       refreshNotifications();
       const n = notifications.find((item) => item.id === notificationId);
