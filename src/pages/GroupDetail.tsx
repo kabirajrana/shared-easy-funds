@@ -39,6 +39,7 @@ function formatTargetDay(day?: number) {
 export function GroupDetailPage({ groupId, highlightExpenseId }: { groupId: string; highlightExpenseId?: string }) {
   const [tab, setTab] = useState<"expenses" | "balances">("expenses");
   const [draftTargetBudget, setDraftTargetBudget] = useState("");
+  const [isHydrating, setIsHydrating] = useState(true);
   const qrInputRef = useRef<HTMLInputElement>(null);
   const expenseRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const navigate = useNavigate();
@@ -65,12 +66,19 @@ export function GroupDetailPage({ groupId, highlightExpenseId }: { groupId: stri
   }, [group?.targetBudget]);
 
   useEffect(() => {
-    void hydrateGroupWorkspace();
-  }, [hydrateGroupWorkspace]);
+    let cancelled = false;
 
-  useEffect(() => {
-    void hydrateWorkspace();
-  }, [hydrateWorkspace]);
+    const syncWorkspace = async () => {
+      await Promise.all([hydrateGroupWorkspace(), hydrateWorkspace()]);
+      if (!cancelled) setIsHydrating(false);
+    };
+
+    void syncWorkspace();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrateGroupWorkspace, hydrateWorkspace]);
 
   useEffect(() => {
     if (!highlightExpenseId) return;
@@ -190,6 +198,17 @@ export function GroupDetailPage({ groupId, highlightExpenseId }: { groupId: stri
       toast.success("QR details copied");
     }
   };
+
+  if (isHydrating) {
+    return (
+      <div className="px-4 py-4">
+        <PageHeader title="Group" />
+        <div className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 text-sm text-[var(--saj-muted)]">
+          Restoring your group workspace...
+        </div>
+      </div>
+    );
+  }
 
   if (!group) {
     return (
