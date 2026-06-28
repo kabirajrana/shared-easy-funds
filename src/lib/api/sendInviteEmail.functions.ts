@@ -15,7 +15,7 @@ const inviteEmailInput = z.object({
 function buildJoinUrl(appUrl: string, inviteCode: string) {
   const trimmed = appUrl.trim().replace(/\/$/, "");
   if (!trimmed) return "";
-  return `${trimmed}/onboarding?invite=${encodeURIComponent(inviteCode)}`;
+  return `${trimmed}/groups?invite=${encodeURIComponent(inviteCode)}`;
 }
 
 export const sendInviteEmail = createServerFn({ method: "POST" })

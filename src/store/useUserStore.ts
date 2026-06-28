@@ -38,11 +38,16 @@ type UserState = {
 const defaultUser = demoUsers[0];
 const initialUser = loadStoredUser() ?? defaultUser;
 
+if (typeof window !== "undefined") {
+  api.setCurrentUser(initialUser.id);
+}
+
 export const useUserStore = create<UserState>((set) => ({
   currentUser: initialUser,
   isAuthenticated: true,
   signIn: (user) => {
     saveStoredUser(user);
+    api.setCurrentUser(user.id);
     set({ currentUser: user, isAuthenticated: true });
   },
   signOut: () => {

@@ -118,6 +118,13 @@ export interface Notification {
   };
 }
 
+type InviteDeliveryStatus = "sent" | "skipped" | "failed";
+
+type InviteDeliveryResult = {
+  deliveryStatus: InviteDeliveryStatus;
+  reason?: string;
+};
+
 export interface GroupInvitation {
   id: string;
   group_id: string;
@@ -600,6 +607,38 @@ function getInvitationByToken(token: string) {
   );
 }
 
+async function sendInviteEmailWithStatus(input: {
+  data: {
+    email: string;
+    inviterName: string;
+    groupName: string;
+    inviteCode: string;
+    invitationId: string;
+    groupId: string;
+  };
+}): Promise<InviteDeliveryResult> {
+  try {
+    const result = (await sendInviteEmail(input)) as {
+      sent?: boolean;
+      skipped?: boolean;
+      reason?: string;
+    };
+
+    if (result?.skipped) {
+      return { deliveryStatus: "skipped", reason: result.reason };
+    }
+    if (result?.sent) {
+      return { deliveryStatus: "sent" };
+    }
+    return { deliveryStatus: "failed", reason: result?.reason ?? "Invite email was not sent." };
+  } catch (error) {
+    return {
+      deliveryStatus: "failed",
+      reason: error instanceof Error ? error.message : "Invite email was not sent.",
+    };
+  }
+}
+
 function getNotificationVisibilityPredicate() {
   const currentEmail = getCurrentUser()?.email?.toLowerCase();
   return (n: Notification) =>
@@ -724,9 +763,13 @@ export const api = {
   async createGroup(
     name: string,
     monthly_target: number,
-    opts?: { solo?: boolean; memberEmails?: string[]; targetDayOfMonth?: number }
+    opts?: { solo?: boolean; memberEmails?: string[]; targetDayOfMonth?: number; leader?: User }
   ): Promise<Group> {
     if (!SHARED_BACKEND_ENABLED) {
+      const leader = opts?.leader ?? getCurrentUser() ?? users.find((user) => user.id === currentUserId) ?? null;
+      if (!leader?.id || !leader.email) {
+        throw new Error("Please sign in before creating a group.");
+      }
       const result = await createSharedGroupFn({
         data: {
           name,
@@ -734,9 +777,9 @@ export const api = {
           target_day_of_month: opts?.targetDayOfMonth,
           solo: !!opts?.solo,
           leader: {
-            id: currentUserId || getCurrentUser()?.id || "",
-            name: getCurrentUser()?.name ?? "Leader",
-            email: getCurrentUser()?.email ?? "",
+            id: leader.id,
+            name: leader.name ?? "Leader",
+            email: leader.email,
           },
           memberEmails: opts?.memberEmails ?? [],
         },
@@ -744,19 +787,20 @@ export const api = {
       return delay(result.group as Group);
     }
     if (SHARED_BACKEND_ENABLED) {
-      if (!currentUserId) throw new Error("Please sign in first.");
+      const leaderId = opts?.leader?.id || currentUserId;
+      if (!leaderId) throw new Error("Please sign in first.");
       const g = {
         id: `g_${Date.now()}`,
         name: name.trim() || "My group",
         invite_code: genInvite(),
-        leader_id: currentUserId,
+        leader_id: leaderId,
         monthly_target,
         target_day_of_month: opts?.targetDayOfMonth,
         solo: !!opts?.solo,
       };
       await sharedInsert<Group>("groups", g);
       await sharedInsert<Membership>("memberships", {
-        user_id: currentUserId,
+        user_id: leaderId,
         group_id: g.id,
         role: "leader",
         joined_at: iso(new Date()),
@@ -780,9 +824,7 @@ export const api = {
             updated_at: iso(new Date()),
           };
           await sharedInsert<GroupInvitation>("group_invitations", invitation);
-          if (targetUser) {
-            await sharedInsert<Notification>("notifications", buildGroupInviteNotification(invitation, g, sender));
-          }
+          await sharedInsert<Notification>("notifications", buildGroupInviteNotification(invitation, g, sender));
         }
       }
 
@@ -932,7 +974,7 @@ export const api = {
     return http("/api/groups/join", { method: "POST", body: JSON.stringify({ invite_code }) });
   },
 
-  async sendGroupInvite(groupId: string, email: string): Promise<void> {
+  async sendGroupInvite(groupId: string, email: string): Promise<InviteDeliveryResult> {
     if (!SHARED_BACKEND_ENABLED) {
       if (!currentUserId) throw new Error("Please sign in first.");
       const sender = getCurrentUser();
@@ -948,17 +990,18 @@ export const api = {
           invitedEmail: email.trim().toLowerCase(),
         },
       });
-      void sendInviteEmail({
+      const sharedGroup = await getSharedGroupFn({ data: { groupId } });
+      const emailResult = await sendInviteEmailWithStatus({
         data: {
           email: email.trim().toLowerCase(),
           inviterName: sender.name,
-          groupName: (await getSharedGroupFn({ data: { groupId } }))?.name ?? "your group",
-          inviteCode: (await getSharedGroupFn({ data: { groupId } }))?.invite_code ?? "SAJHA-XXXX",
+          groupName: sharedGroup?.name ?? "your group",
+          inviteCode: sharedGroup?.invite_code ?? "SAJHA-XXXX",
           invitationId: invitation.id,
           groupId,
         },
-      }).catch(() => undefined);
-      return delay(undefined);
+      });
+      return delay(emailResult);
     }
     if (SHARED_BACKEND_ENABLED) {
       if (!currentUserId) throw new Error("Please sign in first.");
@@ -981,10 +1024,8 @@ export const api = {
         updated_at: iso(new Date()),
       };
       await sharedInsert<GroupInvitation>("group_invitations", invitation);
-      if (targetUser) {
-        await sharedInsert<Notification>("notifications", buildGroupInviteNotification(invitation, g, sender));
-      }
-      void sendInviteEmail({
+      await sharedInsert<Notification>("notifications", buildGroupInviteNotification(invitation, g, sender));
+      const emailResult = await sendInviteEmailWithStatus({
         data: {
           email: recipientEmail,
           inviterName: sender?.name ?? "A group leader",
@@ -993,8 +1034,8 @@ export const api = {
           invitationId: invitation.id,
           groupId: g.id,
         },
-      }).catch(() => undefined);
-      return delay(undefined);
+      });
+      return delay(emailResult);
     }
     if (USE_MOCK) {
       if (!currentUserId) throw new Error("Please sign in first.");
@@ -1014,7 +1055,7 @@ export const api = {
       if (targetUser) {
         createNotification(buildGroupInviteNotification(invitation, g, getCurrentUser()));
       }
-      void sendInviteEmail({
+      const emailResult = await sendInviteEmailWithStatus({
         data: {
           email: recipientEmail,
           inviterName: getCurrentUser()?.name ?? "A group leader",
@@ -1023,13 +1064,14 @@ export const api = {
           invitationId: invitation.id,
           groupId: g.id,
         },
-      }).catch(() => undefined);
-      return delay(undefined);
+      });
+      return delay(emailResult);
     }
     await http(`/api/groups/${groupId}/invite`, {
       method: "POST",
       body: JSON.stringify({ email }),
     });
+    return delay({ deliveryStatus: "sent" });
   },
 
   async acceptGroupInvite(notificationId: string): Promise<Group | undefined> {

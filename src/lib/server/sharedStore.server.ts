@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { constants as fsConstants, promises as fs } from "node:fs";
 import path from "node:path";
 
 export type SharedGroup = {
@@ -78,9 +78,46 @@ type SharedState = {
   notifications: SharedNotification[];
 };
 
-const STORE_PATH = path.join(process.cwd(), ".sajha-server-store.json");
+const STORE_FILENAME = ".sajha-server-store.json";
+
+function normalizePath(value: string) {
+  return value.replace(/\\/g, "/");
+}
+
+function isReadOnlyPath(value: string) {
+  const normalized = normalizePath(value);
+  return normalized.startsWith("/var/task/") || normalized === "/var/task" || normalized.startsWith("/workspace/") || normalized === "/workspace";
+}
+
+function getCandidateStorePaths() {
+  return [path.join("/tmp", STORE_FILENAME)].filter((candidate) => !isReadOnlyPath(candidate));
+}
+
+async function canWriteToPath(filePath: string) {
+  if (isReadOnlyPath(filePath)) return false;
+  try {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.access(path.dirname(filePath), fsConstants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveWritableStorePath() {
+  for (const candidate of getCandidateStorePaths()) {
+    if (await canWriteToPath(candidate)) return candidate;
+  }
+  return null;
+}
+
+function getReadableStorePaths() {
+  return [path.join("/tmp", STORE_FILENAME)];
+}
 
 let cachedState: SharedState | null = null;
+let cachedStorePath = path.join("/tmp", STORE_FILENAME);
+let memoryOnlyStore = false;
 
 function emptyState(): SharedState {
   return {
@@ -93,19 +130,54 @@ function emptyState(): SharedState {
 
 async function loadState() {
   if (cachedState) return cachedState;
-  try {
-    const raw = await fs.readFile(STORE_PATH, "utf8");
-    cachedState = JSON.parse(raw) as SharedState;
-  } catch {
-    cachedState = emptyState();
+  const writablePath = await resolveWritableStorePath();
+  if (writablePath) {
+    cachedStorePath = writablePath;
+    memoryOnlyStore = false;
+  } else {
+    memoryOnlyStore = true;
   }
+  for (const candidate of getReadableStorePaths()) {
+    try {
+      const raw = await fs.readFile(candidate, "utf8");
+      cachedState = JSON.parse(raw) as SharedState;
+      return cachedState;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  cachedState = emptyState();
   return cachedState;
 }
 
 async function saveState(next: SharedState) {
   cachedState = next;
-  await fs.mkdir(path.dirname(STORE_PATH), { recursive: true });
-  await fs.writeFile(STORE_PATH, JSON.stringify(next, null, 2), "utf8");
+  const payload = JSON.stringify(next, null, 2);
+
+  if (memoryOnlyStore) return;
+
+  const fallbackPath = await resolveWritableStorePath();
+  const candidates = [cachedStorePath, ...(fallbackPath && fallbackPath !== cachedStorePath ? [fallbackPath] : [])];
+  let lastError: unknown;
+
+  for (const candidate of candidates) {
+    try {
+      await fs.mkdir(path.dirname(candidate), { recursive: true });
+      await fs.writeFile(candidate, payload, "utf8");
+      cachedStorePath = candidate;
+      return;
+    } catch (error: any) {
+      const code = error?.code;
+      lastError = error;
+      if (code !== "EROFS" && code !== "EACCES" && code !== "EPERM") throw error;
+    }
+  }
+
+  memoryOnlyStore = true;
+  if (lastError && typeof lastError === "object" && "code" in lastError) {
+    const code = (lastError as { code?: string }).code;
+    if (code === "EROFS" || code === "EACCES" || code === "EPERM") return;
+  }
 }
 
 function iso(date = new Date()) {

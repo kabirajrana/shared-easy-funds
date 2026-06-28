@@ -136,34 +136,34 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       const next = loadWorkspace();
       return next;
     }),
-  upsertSharedGroup: (group) =>
-    set((state) => {
-      const existing = state.groups.find((entry) => entry.id === group.id);
-      const nextGroup: Group = {
-        id: group.id,
-        name: group.name,
-        avatarColor: group.avatarColor ?? existing?.avatarColor ?? "#1A6B5A",
-        avatarImage: group.avatarImage ?? existing?.avatarImage ?? group.avatar_url,
-        inviteCode: group.invite_code,
-        leaderId: group.leader_id,
-        memberIds: existing?.memberIds ?? [],
-        targetBudget: group.monthly_target,
-        targetDayOfMonth: group.target_day_of_month,
-        targetDate: group.targetDate ?? existing?.targetDate,
-        paymentQR: group.qr_image_url || group.qr_label
-          ? {
-              provider: "eSewa",
-              name: String(group.qr_label ?? group.name),
-              qrImage: group.qr_image_url,
-            }
-          : existing?.paymentQR,
-        createdAt: existing?.createdAt ?? new Date().toISOString().slice(0, 10),
-        memberCount: existing?.memberCount,
-        lastUpdated: new Date().toISOString().slice(0, 10),
-        statusText: existing?.statusText,
-        balance: existing?.balance ?? 0,
-      };
+  upsertSharedGroup: (group) => {
+    const existing = get().groups.find((entry) => entry.id === group.id);
+    const nextGroup: Group = {
+      id: group.id,
+      name: group.name,
+      avatarColor: group.avatarColor ?? existing?.avatarColor ?? "#1A6B5A",
+      avatarImage: group.avatarImage ?? existing?.avatarImage ?? group.avatar_url,
+      inviteCode: group.invite_code,
+      leaderId: group.leader_id,
+      memberIds: existing?.memberIds ?? [],
+      targetBudget: group.monthly_target,
+      targetDayOfMonth: group.target_day_of_month,
+      targetDate: group.targetDate ?? existing?.targetDate,
+      paymentQR: group.qr_image_url || group.qr_label
+        ? {
+            provider: "eSewa",
+            name: String(group.qr_label ?? group.name),
+            qrImage: group.qr_image_url,
+          }
+        : existing?.paymentQR,
+      createdAt: existing?.createdAt ?? new Date().toISOString().slice(0, 10),
+      memberCount: existing?.memberCount,
+      lastUpdated: new Date().toISOString().slice(0, 10),
+      statusText: existing?.statusText,
+      balance: existing?.balance ?? 0,
+    };
 
+    set((state) => {
       const next = {
         ...state,
         groups: state.groups.some((entry) => entry.id === group.id)
@@ -172,7 +172,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       };
       persistWorkspace(next);
       return next;
-    }),
+    });
+    return nextGroup;
+  },
   generateInviteCode,
   resetWorkspace: () =>
     set(() => {
@@ -220,6 +222,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
   }) => {
     const current = loadWorkspace();
     const owner = leader ?? useUserStore.getState().currentUser;
+    if (!owner?.id) {
+      throw new Error("Please sign in before creating a group.");
+    }
     const group: Group = {
       id: crypto.randomUUID(),
       name,
@@ -272,6 +277,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
     if (!group) return undefined;
 
     const currentUser = useUserStore.getState().currentUser;
+    if (!currentUser?.id) {
+      throw new Error("Please sign in before joining a group.");
+    }
 
     set((state) => {
       const members = state.groupMembers[group.id] ?? [];

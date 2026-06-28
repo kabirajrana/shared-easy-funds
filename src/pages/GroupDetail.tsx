@@ -82,11 +82,22 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
 
   const inviteMember = useMutation({
     mutationFn: async (email: string) => {
-      await api.sendGroupInvite(groupId, email);
+      return api.sendGroupInvite(groupId, email);
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      toast.success("Invitation sent! They will be notified in-app.");
+      if (result.deliveryStatus === "sent") {
+        toast.success("Invitation sent! They will be notified in-app and by email.");
+        return;
+      }
+      toast.message("Invitation saved", {
+        description:
+          result.deliveryStatus === "skipped"
+            ? "Email delivery is not configured here, so share the invite code or link manually."
+            : result.reason
+              ? `The invite was saved in-app, but the email could not be sent: ${result.reason}`
+              : "The invite was saved in-app, but the email could not be sent. Share the invite code or link manually.",
+      });
     },
     onError: (error: Error) => {
       toast.error(error?.message ?? "Could not send invite");

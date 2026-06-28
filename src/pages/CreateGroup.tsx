@@ -28,7 +28,7 @@ function addDays(date: Date, days: number) {
 
 export function CreateGroupPage() {
   const navigate = useNavigate();
-  const { user } = useSession();
+  const { user, hydrated } = useSession();
   const upsertSharedGroup = useGroupStore((state) => state.upsertSharedGroup);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const initializedNameRef = useRef(false);
@@ -50,6 +50,11 @@ export function CreateGroupPage() {
   }, [user?.name]);
 
   const submit = () => {
+    if (!hydrated || !user?.id) {
+      toast.error("Please sign in first.");
+      return;
+    }
+    api.setCurrentUser(user.id);
     const parsedBudget = Number(targetBudget);
     if (!Number.isFinite(parsedBudget) || parsedBudget <= 0) {
       toast.error("Please enter a valid target budget.");
@@ -65,6 +70,7 @@ export function CreateGroupPage() {
     }
     api.createGroup(name.trim() || (user?.name ? `${user.name}'s Group` : "My Group"), parsedBudget, {
       targetDayOfMonth: undefined,
+      leader: user,
     }).then((remote) => {
       const group = upsertSharedGroup({
         ...remote,
@@ -189,7 +195,7 @@ export function CreateGroupPage() {
           <Button variant="secondary" onClick={() => navigate({ to: "/groups" })}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!name.trim()}>
+          <Button onClick={submit} disabled={!name.trim() || !hydrated || !user?.id}>
             Create group
           </Button>
         </div>

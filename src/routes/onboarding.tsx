@@ -36,6 +36,16 @@ function Onboarding() {
   if (!user) return <Navigate to="/auth" replace />;
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const incomingInvite = params.get("invite");
+    if (incomingInvite) {
+      setMode("join");
+      setCode(incomingInvite.toUpperCase());
+    }
+  }, []);
+
+  useEffect(() => {
     if (name.trim()) return;
     setName(mode === "solo" ? `${user.name} Fund` : `${user.name}'s Group`);
   }, [mode, name, user.name]);
@@ -59,10 +69,12 @@ function Onboarding() {
   const submit = async () => {
     setBusy(true);
     try {
+      api.setCurrentUser(user.id);
       if (mode === "solo") {
         const remote = await api.createGroup(name.trim() || `${user.name} Fund`, target, {
           solo: true,
           targetDayOfMonth,
+          leader: user,
         });
         const g = upsertSharedGroup({
           ...remote,
@@ -77,6 +89,7 @@ function Onboarding() {
       } else if (mode === "create") {
         const remote = await api.createGroup(name.trim() || `${user.name}'s Group`, target, {
           targetDayOfMonth,
+          leader: user,
         });
         const g = upsertSharedGroup({
           ...remote,
@@ -86,21 +99,22 @@ function Onboarding() {
         });
         updateBudget(target);
         setGroup(g);
-        const registered = api.allUsers();
         const inviteResults = await Promise.allSettled(
           emails.map((email) => api.sendGroupInvite(remote.id, email.trim().toLowerCase())),
         );
-        const missing = emails.filter((email) => !registered.some((u) => u.email.toLowerCase() === email));
-        const sent = inviteResults.filter((result) => result.status === "fulfilled").length;
-        if (sent > 0 && missing.length > 0) {
+        const sent = inviteResults.filter((result) => result.status === "fulfilled" && result.value.deliveryStatus === "sent").length;
+        const unsent = inviteResults.filter(
+          (result) => result.status === "fulfilled" && result.value.deliveryStatus !== "sent",
+        ).length;
+        if (sent > 0 && unsent > 0) {
           toast.message("Group created", {
-            description: `${sent} registered member(s) were sent join requests. ${missing.length} email(s) aren't registered yet, so share the invite code with them after they sign up.`,
+            description: `${sent} invite email(s) were sent. ${unsent} recipient(s) may need the invite code or link because email delivery was unavailable.`,
           });
         } else if (sent > 0) {
-          toast.success("Group created and join requests sent");
-        } else if (missing.length > 0) {
+          toast.success("Group created and invite emails sent");
+        } else if (unsent > 0) {
           toast.message("Group created", {
-            description: `${missing.length} email(s) aren't registered yet. Share the invite code so they can join later.`,
+            description: "The group was created, but email delivery was not available for this invite. Share the invite code or link manually.",
           });
         } else {
           toast.success("Group created");
