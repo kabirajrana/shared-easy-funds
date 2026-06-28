@@ -10,7 +10,6 @@ import { getInitials } from "@/lib/utils";
 import type { User } from "@/lib/types";
 import { useUserStore } from "@/store/useUserStore";
 import { api } from "@/services/api";
-import { InstallAppBanner } from "@/components/pwa/InstallAppBanner";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Auth — Sajha" }] }),
@@ -128,7 +127,6 @@ function AuthPage() {
 
       <section className="relative z-10 flex-1 rounded-t-[32px] bg-white px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4 shadow-[0_-16px_44px_rgba(15,110,86,0.07)] sm:px-5">
         <div className="mx-auto mb-3 h-[5px] w-12 rounded-full bg-black/10" />
-        <InstallAppBanner className="mb-4" />
         <TabSwitcher
           value={mode}
           onChange={setMode}

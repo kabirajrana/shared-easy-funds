@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { IconBell } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { SajhaAvatar } from "@/components/ui/avatar";
 import { BudgetBar } from "@/components/ui/BudgetBar";
 import { Button } from "@/components/ui/button";
@@ -9,17 +9,24 @@ import { useSession } from "@/lib/session";
 import { useExpenseStore } from "@/store/useExpenseStore";
 import { useGroupStore } from "@/store/useGroupStore";
 import { formatNPR } from "@/lib/utils";
+import type { User } from "@/types";
 
-const EMPTY_MEMBERS: readonly unknown[] = [];
+const EMPTY_MEMBERS: User[] = [];
 
 export function HomePage() {
   const { user } = useSession();
   const activeGroupId = useGroupStore((state) => state.activeGroupId);
   const groups = useGroupStore((state) => state.groups);
   const expenses = useExpenseStore((state) => state.expenses);
+  const hydrateWorkspace = useExpenseStore((state) => state.hydrateWorkspace);
   const groupMembers = useGroupStore((state) => state.groupMembers);
   const activeGroup = groups.find((group) => group.id === activeGroupId);
   const hasWorkspace = groups.length > 0 || expenses.length > 0;
+
+  useEffect(() => {
+    void hydrateWorkspace();
+  }, [hydrateWorkspace]);
+
   const summary = useMemo(() => {
     const userId = user?.id ?? "u1";
     const relevant = activeGroup
@@ -127,7 +134,11 @@ export function HomePage() {
           </div>
           <div className="mt-2 divide-y divide-[var(--saj-border-soft)]">
             {hasWorkspace && recentExpenses.length > 0 ? (
-              recentExpenses.map((expense) => <ExpenseItem key={expense.id} expense={expense} paidBy={user} />)
+              recentExpenses.map((expense) => {
+                const paidBy =
+                  members.find((member) => member.id === expense.paidById) ?? (expense.paidById === user?.id ? user : undefined);
+                return <ExpenseItem key={expense.id} expense={expense} paidBy={paidBy} />;
+              })
             ) : (
               <div className="px-4 py-5 text-center">
                 <p className="text-[13px] font-medium text-[var(--saj-text)]">

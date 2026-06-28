@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { addSharedChatMessageFn, getSharedChatMessagesFn } from "@/lib/api/sharedStore.functions";
 import type { ChatMessage, User } from "@/types";
 
 const CHATS_KEY = "sajha.groupChats";
@@ -6,7 +7,7 @@ const CHANNEL_NAME = "sajha:group-chat";
 
 type ChatState = {
   messages: ChatMessage[];
-  hydrateWorkspace: () => void;
+  hydrateWorkspace: (groupId?: string) => Promise<void>;
   resetWorkspace: () => void;
   getGroupMessages: (groupId: string) => ChatMessage[];
   sendMessage: (input: {
@@ -18,11 +19,23 @@ type ChatState = {
     mediaName?: string;
     mediaType?: string;
     durationMs?: number;
-  }) => ChatMessage;
+  }) => Promise<ChatMessage>;
 };
 
 let syncReady = false;
 let channel: BroadcastChannel | null = null;
+
+function sortMessages(messages: ChatMessage[]) {
+  return [...messages].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
+function mergeGroupMessages(messages: ChatMessage[], groupMessages: ChatMessage[]) {
+  if (groupMessages.length === 0) return sortMessages(messages);
+  const groupId = groupMessages[0]?.groupId;
+  if (!groupId) return sortMessages(messages);
+  const remaining = messages.filter((message) => message.groupId !== groupId);
+  return sortMessages([...remaining, ...groupMessages]);
+}
 
 function normalizeMessage(raw: any): ChatMessage | null {
   if (!raw || typeof raw !== "object") return null;
@@ -55,7 +68,7 @@ function loadMessages() {
   try {
     const raw = localStorage.getItem(CHATS_KEY);
     const parsed = raw ? (JSON.parse(raw) as unknown[]) : [];
-    return parsed.map(normalizeMessage).filter(Boolean) as ChatMessage[];
+    return sortMessages(parsed.map(normalizeMessage).filter(Boolean) as ChatMessage[]);
   } catch {
     return [];
   }
@@ -89,10 +102,30 @@ function setupSync(onChange: () => void) {
 }
 
 export const useChatStore = create<ChatState>((set, get) => {
-  const refresh = () =>
-    set(() => ({
-      messages: loadMessages(),
-    }));
+  const refresh = async (groupId?: string) => {
+    if (!groupId) {
+      set(() => ({
+        messages: loadMessages(),
+      }));
+      return;
+    }
+
+    try {
+      const serverMessages = await getSharedChatMessagesFn({ groupId });
+      const normalized = serverMessages.map(normalizeMessage).filter(Boolean) as ChatMessage[];
+      set((state) => {
+        const nextMessages = mergeGroupMessages(state.messages, normalized);
+        persistMessages(nextMessages);
+        publishUpdate();
+        return { messages: nextMessages };
+      });
+      return;
+    } catch {
+      set(() => ({
+        messages: loadMessages(),
+      }));
+    }
+  };
 
   setupSync(refresh);
 
@@ -109,7 +142,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       get()
         .messages.filter((message) => message.groupId === groupId)
         .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt)),
-    sendMessage: ({ groupId, sender, text, kind, mediaUrl, mediaName, mediaType, durationMs }) => {
+    sendMessage: async ({ groupId, sender, text, kind, mediaUrl, mediaName, mediaType, durationMs }) => {
       const message: ChatMessage = {
         id: crypto.randomUUID(),
         groupId,
@@ -126,8 +159,14 @@ export const useChatStore = create<ChatState>((set, get) => {
         createdAt: new Date().toISOString(),
       };
 
+      try {
+        await addSharedChatMessageFn({ message });
+      } catch {
+        // Keep the local UI responsive even if the shared store is temporarily unavailable.
+      }
+
       set((state) => {
-        const nextMessages = [...state.messages, message];
+        const nextMessages = mergeGroupMessages(state.messages, [message]);
         persistMessages(nextMessages);
         publishUpdate();
         return { messages: nextMessages };

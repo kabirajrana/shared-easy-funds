@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,7 @@ export function AddExpensePage() {
   const groups = useGroupStore((state) => state.groups);
   const groupMembers = useGroupStore((state) => state.groupMembers);
   const addExpense = useExpenseStore((state) => state.addExpense);
+  const hydrateWorkspace = useExpenseStore((state) => state.hydrateWorkspace);
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState<ExpenseCategory>("food");
@@ -39,26 +41,34 @@ export function AddExpensePage() {
     return groupMembers[groupId] ?? [user];
   }, [groupId, groupMembers, user]);
 
-  const submit = () => {
+  useEffect(() => {
+    void hydrateWorkspace();
+  }, [hydrateWorkspace]);
+
+  const submit = async () => {
     const parsedAmount = Number(amount);
     if (!description.trim() || !parsedAmount) return;
 
     const splitAmount = Math.round(parsedAmount / Math.max(members.length, 1));
-    addExpense({
-      id: crypto.randomUUID(),
-      description: description.trim(),
-      title: description.trim(),
-      amount: parsedAmount,
-      category,
-      date,
-      paidById,
-      groupId: groupId || undefined,
-      splitType,
-      splits: members.map((member) => ({ userId: member.id, amount: splitAmount })),
-      createdAt: new Date().toISOString(),
-      type: "expense",
-    });
-    navigate({ to: groupId ? `/groups/${groupId}` : "/" });
+    try {
+      await addExpense({
+        id: crypto.randomUUID(),
+        description: description.trim(),
+        title: description.trim(),
+        amount: parsedAmount,
+        category,
+        date,
+        paidById,
+        groupId: groupId || undefined,
+        splitType,
+        splits: members.map((member) => ({ userId: member.id, amount: splitAmount })),
+        createdAt: new Date().toISOString(),
+        type: "expense",
+      });
+      navigate({ to: groupId ? `/groups/${groupId}` : "/" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save expense");
+    }
   };
 
   return (

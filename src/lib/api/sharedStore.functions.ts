@@ -53,6 +53,43 @@ const myGroupsInput = z.object({
   email: z.string().email().optional(),
 });
 
+const expenseSplitInput = z.object({
+  userId: z.string().min(1),
+  amount: z.number().finite().nonnegative(),
+});
+
+const expenseInput = z.object({
+  id: z.string().min(1),
+  description: z.string().min(1),
+  amount: z.number().finite().nonnegative(),
+  category: z.enum(["food", "transport", "rent", "utilities", "entertainment", "groceries", "shopping", "health", "other"]),
+  date: z.string().min(1),
+  paidById: z.string().min(1),
+  groupId: z.string().optional(),
+  splitType: z.enum(["equal", "amount", "percentage"]),
+  splits: z.array(expenseSplitInput),
+  createdAt: z.string().min(1),
+  title: z.string().optional(),
+  type: z.enum(["expense", "income"]).optional(),
+  notes: z.string().optional(),
+});
+
+const chatMessageInput = z.object({
+  id: z.string().min(1),
+  groupId: z.string().min(1),
+  senderId: z.string().min(1),
+  senderName: z.string().min(1),
+  senderColor: z.string().optional(),
+  senderInitials: z.string().optional(),
+  kind: z.enum(["text", "image", "voice", "file"]),
+  text: z.string().optional(),
+  mediaUrl: z.string().optional(),
+  mediaName: z.string().optional(),
+  mediaType: z.string().optional(),
+  durationMs: z.number().finite().nonnegative().optional(),
+  createdAt: z.string().min(1),
+});
+
 async function store() {
   return import("../server/sharedStore.server");
 }
@@ -143,4 +180,40 @@ export const deleteSharedGroupFn = createServerFn({ method: "POST" })
     const { deleteSharedGroup } = await store();
     await deleteSharedGroup(data);
     return { success: true as const };
+  });
+
+export const addSharedExpenseFn = createServerFn({ method: "POST" })
+  .validator(z.object({ expense: expenseInput }))
+  .handler(async ({ data }) => {
+    const { addSharedExpense } = await store();
+    return addSharedExpense({ expense: data.expense });
+  });
+
+export const getSharedExpensesFn = createServerFn({ method: "POST" })
+  .validator(groupInput)
+  .handler(async ({ data }) => {
+    const { getSharedExpenses } = await store();
+    return getSharedExpenses(data);
+  });
+
+export const deleteSharedExpenseFn = createServerFn({ method: "POST" })
+  .validator(z.object({ expenseId: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    const { deleteSharedExpense } = await store();
+    await deleteSharedExpense(data);
+    return { success: true as const };
+  });
+
+export const getSharedChatMessagesFn = createServerFn({ method: "POST" })
+  .validator(groupInput)
+  .handler(async ({ data }) => {
+    const { getSharedChatMessages } = await store();
+    return getSharedChatMessages(data);
+  });
+
+export const addSharedChatMessageFn = createServerFn({ method: "POST" })
+  .validator(z.object({ message: chatMessageInput }))
+  .handler(async ({ data }) => {
+    const { addSharedChatMessage } = await store();
+    return addSharedChatMessage({ message: data.message });
   });

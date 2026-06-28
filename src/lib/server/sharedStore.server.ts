@@ -1,5 +1,6 @@
 import { constants as fsConstants, promises as fs } from "node:fs";
 import path from "node:path";
+import type { ChatMessage, Expense } from "@/types";
 
 export type SharedGroup = {
   id: string;
@@ -38,7 +39,16 @@ export type SharedInvitation = {
 
 export type SharedNotification = {
   id: string;
-  type: "group_invite" | "invite_accepted" | "invite_declined" | "request" | "approval" | "rejection" | "summary" | "low_balance";
+  type:
+    | "group_invite"
+    | "invite_accepted"
+    | "invite_declined"
+    | "expense_added"
+    | "request"
+    | "approval"
+    | "rejection"
+    | "summary"
+    | "low_balance";
   title: string;
   body: string;
   message?: string;
@@ -68,6 +78,11 @@ export type SharedNotification = {
     inviteCode?: string;
     leaderId?: string;
     status?: "pending" | "accepted" | "declined" | "expired";
+    expenseId?: string;
+    expenseTitle?: string;
+    expenseAmount?: number;
+    paidByName?: string;
+    paidById?: string;
   };
 };
 
@@ -76,6 +91,8 @@ type SharedState = {
   memberships: SharedMembership[];
   invitations: SharedInvitation[];
   notifications: SharedNotification[];
+  expenses: Expense[];
+  messages: ChatMessage[];
 };
 
 const STORE_FILENAME = ".sajha-server-store.json";
@@ -125,6 +142,8 @@ function emptyState(): SharedState {
     memberships: [],
     invitations: [],
     notifications: [],
+    expenses: [],
+    messages: [],
   };
 }
 
@@ -247,6 +266,44 @@ function buildNotification(input: {
   };
 }
 
+function buildExpenseNotification(input: {
+  expense: Expense;
+  group: SharedGroup;
+  recipient: SharedMembership;
+  actorName: string;
+  actorId: string;
+}): SharedNotification {
+  const now = iso();
+  return {
+    id: `n_exp_${input.expense.id}_${input.recipient.user_id}`,
+    type: "expense_added",
+    title: `${input.actorName} added NPR ${input.expense.amount.toLocaleString("en-IN")}`,
+    body: `${input.expense.title ?? input.expense.description} was added to ${input.group.name}.`,
+    message: `${input.actorName} added NPR ${input.expense.amount.toLocaleString("en-IN")} for ${input.expense.title ?? input.expense.description} in ${input.group.name}.`,
+    date: now,
+    created_at: now,
+    read: false,
+    is_read: false,
+    recipient_id: input.recipient.user_id,
+    recipient_email: input.recipient.user_email,
+    user_id: input.recipient.user_id,
+    user_email: input.recipient.user_email,
+    data: {
+      groupId: input.group.id,
+      groupName: input.group.name,
+      inviterName: input.actorName,
+      inviteCode: input.group.invite_code,
+      leaderId: input.actorId,
+      status: "accepted",
+      expenseId: input.expense.id,
+      expenseTitle: input.expense.title ?? input.expense.description,
+      expenseAmount: input.expense.amount,
+      paidByName: input.actorName,
+      paidById: input.actorId,
+    },
+  };
+}
+
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
@@ -318,6 +375,73 @@ export async function createSharedGroup(input: {
 
   await persist(state);
   return { group, memberships: state.memberships.filter((entry) => entry.group_id === group.id) };
+}
+
+export async function addSharedExpense(input: { expense: Expense }) {
+  const state = await loadState();
+  const nextExpense = { ...input.expense };
+  const index = state.expenses.findIndex((entry) => entry.id === nextExpense.id);
+  if (index >= 0) {
+    state.expenses[index] = nextExpense;
+  } else {
+    state.expenses.unshift(nextExpense);
+  }
+  if (nextExpense.groupId) {
+    const group = state.groups.find((entry) => entry.id === nextExpense.groupId);
+    if (group) {
+      const actor = state.memberships.find((entry) => entry.group_id === group.id && entry.user_id === nextExpense.paidById);
+      const recipients = state.memberships.filter(
+        (entry) => entry.group_id === group.id && entry.user_id !== nextExpense.paidById,
+      );
+      const actorName = actor?.user_name ?? "A group member";
+      for (const recipient of recipients) {
+        state.notifications.unshift(
+          buildExpenseNotification({
+            expense: nextExpense,
+            group,
+            recipient,
+            actorName,
+            actorId: nextExpense.paidById,
+          }),
+        );
+      }
+    }
+  }
+  await persist(state);
+  return nextExpense;
+}
+
+export async function getSharedChatMessages(input: { groupId: string }) {
+  const state = await loadState();
+  return state.messages
+    .filter((entry) => entry.groupId === input.groupId)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
+export async function addSharedChatMessage(input: { message: ChatMessage }) {
+  const state = await loadState();
+  const nextMessage = { ...input.message };
+  const index = state.messages.findIndex((entry) => entry.id === nextMessage.id);
+  if (index >= 0) {
+    state.messages[index] = nextMessage;
+  } else {
+    state.messages.push(nextMessage);
+  }
+  await persist(state);
+  return nextMessage;
+}
+
+export async function getSharedExpenses(input: { groupId: string }) {
+  const state = await loadState();
+  return state.expenses
+    .filter((entry) => entry.groupId === input.groupId)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export async function deleteSharedExpense(input: { expenseId: string }) {
+  const state = await loadState();
+  state.expenses = state.expenses.filter((entry) => entry.id !== input.expenseId);
+  await persist(state);
 }
 
 export async function joinSharedGroup(input: {
@@ -567,6 +691,8 @@ export async function deleteSharedGroup(input: { groupId: string }) {
   state.memberships = state.memberships.filter((entry) => entry.group_id !== input.groupId);
   state.invitations = state.invitations.filter((entry) => entry.group_id !== input.groupId);
   state.notifications = state.notifications.filter((entry) => (entry.data?.groupId ?? entry.meta?.group_id) !== input.groupId);
+  state.expenses = state.expenses.filter((entry) => entry.groupId !== input.groupId);
+  state.messages = state.messages.filter((entry) => entry.groupId !== input.groupId);
   await persist(state);
 }
 

@@ -9,6 +9,8 @@ import {
   MoreVertical,
   Plus,
   Phone,
+  Pause,
+  Play,
   Smile,
   SendHorizonal,
   Square,
@@ -200,6 +202,10 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const activeCallRef = useRef<ActiveCall | null>(null);
   const incomingCallRef = useRef<IncomingCall | null>(null);
+  const ringtoneContextRef = useRef<AudioContext | null>(null);
+  const ringtoneOscillatorRef = useRef<OscillatorNode | null>(null);
+  const ringtoneGainRef = useRef<GainNode | null>(null);
+  const ringtoneTimerRef = useRef<number | null>(null);
 
   const members = group ? groupMembers[group.id] ?? [] : [];
   const groupMessages = useMemo(
@@ -208,8 +214,37 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
   );
 
   useEffect(() => {
-    hydrateWorkspace();
-  }, [hydrateWorkspace]);
+    let active = true;
+    const syncMessages = async () => {
+      if (!active) return;
+      await hydrateWorkspace(groupId);
+    };
+
+    void syncMessages();
+
+    const onFocus = () => {
+      void syncMessages();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void syncMessages();
+      }
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const timer = window.setInterval(() => {
+      void syncMessages();
+    }, 3000);
+
+    return () => {
+      active = false;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.clearInterval(timer);
+    };
+  }, [groupId, hydrateWorkspace]);
 
   useEffect(() => {
     const scroller = listRef.current;
@@ -225,6 +260,82 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
     incomingCallRef.current = incomingCall;
   }, [incomingCall]);
 
+  const stopRingtone = () => {
+    if (ringtoneTimerRef.current !== null) {
+      window.clearInterval(ringtoneTimerRef.current);
+      ringtoneTimerRef.current = null;
+    }
+
+    try {
+      ringtoneOscillatorRef.current?.stop();
+    } catch {}
+
+    ringtoneOscillatorRef.current?.disconnect();
+    ringtoneGainRef.current?.disconnect();
+
+    ringtoneOscillatorRef.current = null;
+    ringtoneGainRef.current = null;
+
+    if (ringtoneContextRef.current) {
+      void ringtoneContextRef.current.close().catch(() => {});
+      ringtoneContextRef.current = null;
+    }
+  };
+
+  const startRingtone = async () => {
+    if (ringtoneOscillatorRef.current || ringtoneContextRef.current) return;
+
+    const AudioContextCtor =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+
+    const context = new AudioContextCtor();
+    ringtoneContextRef.current = context;
+
+    try {
+      if (context.state === "suspended") {
+        await context.resume();
+      }
+    } catch {}
+
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = 880;
+    gain.gain.value = 0;
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+
+    const ringPulse = () => {
+      const now = context.currentTime;
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(0.065, now + 0.04);
+      gain.gain.linearRampToValueAtTime(0.065, now + 0.18);
+      gain.gain.linearRampToValueAtTime(0.0001, now + 0.28);
+    };
+
+    ringPulse();
+    ringtoneTimerRef.current = window.setInterval(ringPulse, 820);
+    ringtoneOscillatorRef.current = oscillator;
+    ringtoneGainRef.current = gain;
+  };
+
+  useEffect(() => {
+    const shouldRing = Boolean(incomingCall) || Boolean(activeCall?.isHost && activeCall.phase === "dialing");
+    if (shouldRing) {
+      void startRingtone();
+    } else {
+      stopRingtone();
+    }
+
+    return () => {
+      stopRingtone();
+    };
+  }, [incomingCall, activeCall?.isHost, activeCall?.phase]);
+
   useEffect(() => {
     if (!isRecording) return;
     const timer = window.setInterval(() => {
@@ -238,6 +349,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         recorderRef.current.stop();
       }
+      stopRingtone();
       peerRef.current?.close();
       peerRef.current = null;
       callChannelRef.current?.close();
@@ -442,6 +554,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
         createdAt: new Date().toISOString(),
       });
     }
+    stopRingtone();
     cleanupCall();
   };
 
@@ -465,6 +578,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
     };
     setActiveCall(next);
     setRemoteConnected(false);
+    void startRingtone();
     sendCallSignal({
       type: "invite",
       callId,
@@ -482,6 +596,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
   const acceptIncomingCall = async () => {
     if (!user || !incomingCall) return;
     try {
+      stopRingtone();
       const next = {
         callId: incomingCall.callId,
         mode: incomingCall.mode,
@@ -510,6 +625,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
 
   const declineIncomingCall = () => {
     if (!user || !incomingCall) return;
+    stopRingtone();
     sendCallSignal({
       type: "decline",
       callId: incomingCall.callId,
@@ -522,7 +638,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
   };
 
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!user) {
       toast.error("Please sign in to chat.");
       return;
@@ -532,7 +648,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
     if (!trimmed && !pendingAttachment) return;
 
     if (pendingAttachment) {
-      sendMessage({
+      await sendMessage({
         groupId,
         sender: user,
         kind: pendingAttachment.kind,
@@ -547,13 +663,13 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
       return;
     }
 
-    sendMessage({ groupId, sender: user, text: trimmed, kind: "text" });
+    await sendMessage({ groupId, sender: user, text: trimmed, kind: "text" });
     setDraft("");
   };
 
-  const handleQuickSend = () => {
+  const handleQuickSend = async () => {
     if (draft.trim() || pendingAttachment) {
-      handleSend();
+      await handleSend();
       return;
     }
 
@@ -562,7 +678,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
       return;
     }
 
-    sendMessage({ groupId, sender: user, text: "👍", kind: "text" });
+    await sendMessage({ groupId, sender: user, text: "👍", kind: "text" });
   };
 
   const handlePickImage = async (file: File | null) => {
@@ -774,56 +890,68 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
       </div>
 
       {incomingCall ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-[28px] border border-white/10 bg-[#101827] p-5 text-center shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
-            <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[#1C7E5D] text-white">
-              <Phone className="h-7 w-7" />
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-[radial-gradient(circle_at_top,rgba(28,126,93,0.22),rgba(0,0,0,0.9)_55%)] px-4 backdrop-blur-md">
+          <div className="w-full max-w-sm rounded-[32px] border border-white/10 bg-[#101827]/96 p-6 text-center shadow-[0_28px_80px_rgba(0,0,0,0.52)]">
+            <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
+              <span className="absolute inset-0 animate-ping rounded-full bg-[#1C7E5D]/30" />
+              <span className="absolute inset-2 animate-ping rounded-full bg-[#1C7E5D]/20 [animation-delay:180ms]" />
+              <span className="absolute inset-4 rounded-full bg-[#1C7E5D] shadow-[0_0_0_10px_rgba(28,126,93,0.14)]" />
+              <Phone className="relative z-10 h-10 w-10 text-white" />
             </div>
-            <p className="mt-4 text-[12px] uppercase tracking-[0.2em] text-white/45">Incoming {incomingCall.mode} call</p>
-            <h2 className="mt-2 text-[20px] font-semibold text-white">{incomingCall.fromName}</h2>
-            <p className="mt-1 text-[13px] text-white/60">Someone in the group is calling you right now.</p>
-            <div className="mt-5 flex gap-3">
+            <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/55">
+              <span>{incomingCall.mode === "video" ? "Video" : "Voice"} call</span>
+              <span className="h-1 w-1 rounded-full bg-[#49d18f]" />
+              <span>Ringing</span>
+            </div>
+            <h2 className="mt-4 text-[22px] font-semibold text-white">{incomingCall.fromName}</h2>
+            <p className="mt-2 text-[13px] leading-5 text-white/60">
+              Someone in the group is calling you right now. You can answer the call or decline it.
+            </p>
+            <div className="mt-6 flex gap-3">
               <button
                 type="button"
                 onClick={declineIncomingCall}
-                className="flex-1 rounded-full border border-white/10 bg-white/5 px-4 py-3 text-[14px] font-semibold text-white/80 hover:bg-white/10"
+                className="flex-1 rounded-full border border-white/10 bg-white/5 px-4 py-3 text-[14px] font-semibold text-white/80 transition hover:bg-white/10 active:scale-[0.98]"
               >
                 Decline
               </button>
               <button
                 type="button"
                 onClick={() => void acceptIncomingCall()}
-                className="flex-1 rounded-full bg-[#0A7C53] px-4 py-3 text-[14px] font-semibold text-white shadow-[0_10px_24px_rgba(10,124,83,0.35)] hover:brightness-110"
+                className="flex-1 rounded-full bg-[#0A7C53] px-4 py-3 text-[14px] font-semibold text-white shadow-[0_10px_24px_rgba(10,124,83,0.35)] transition hover:brightness-110 active:scale-[0.98]"
               >
                 Accept
               </button>
             </div>
+            <p className="mt-4 text-[11px] text-white/35">The ringtone will stop as soon as you answer or decline.</p>
           </div>
         </div>
       ) : null}
 
       {activeCall ? (
-        <div className="fixed inset-0 z-40 flex flex-col bg-[#071018] text-white">
+        <div className="fixed inset-0 z-40 flex flex-col bg-[radial-gradient(circle_at_top,rgba(28,126,93,0.18),rgba(7,16,24,1)_55%)] text-white">
           <div className="flex items-center justify-between border-b border-white/10 px-4 pb-3 pt-[max(env(safe-area-inset-top),1rem)]">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-white/45">
-                {activeCall.mode === "video" ? "Video call" : "Voice call"}
-              </p>
-              <h2 className="text-[16px] font-semibold">{activeCall.peerName}</h2>
+            <div className="min-w-0">
+              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
+                <span>{activeCall.mode === "video" ? "Video call" : "Voice call"}</span>
+                <span className="h-1 w-1 rounded-full bg-[#49d18f]" />
+                <span>{remoteConnected ? "Connected" : activeCall.phase === "connecting" ? "Connecting" : "Calling"}</span>
+              </div>
+              <h2 className="truncate text-[18px] font-semibold text-white">{activeCall.peerName}</h2>
               <p className="text-[12px] text-white/50">
                 {activeCall.phase === "dialing"
                   ? "Ringing..."
                   : activeCall.phase === "connecting"
                     ? "Connecting..."
                     : remoteConnected
-                      ? "Connected"
+                      ? "You are live now"
                       : "Waiting for the other side"}
               </p>
             </div>
             <button
               type="button"
               onClick={() => endCall()}
-              className="grid h-11 w-11 place-items-center rounded-full bg-[#a63a3a] text-white shadow-[0_10px_24px_rgba(166,58,58,0.35)]"
+              className="grid h-12 w-12 place-items-center rounded-full bg-[#a63a3a] text-white shadow-[0_10px_24px_rgba(166,58,58,0.35)] transition hover:brightness-110 active:scale-[0.98]"
               aria-label="End call"
             >
               <Phone className="h-5 w-5 rotate-[135deg]" />
@@ -832,65 +960,79 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
 
           <div className="relative flex-1 overflow-hidden px-4 py-4">
             {activeCall.mode === "video" ? (
-              <div className="grid h-full gap-3 md:grid-cols-[1.35fr_0.65fr]">
-                <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-black">
-                  <video
-                    ref={remoteVideoRef}
-                    autoPlay
-                    playsInline
-                    className="h-full w-full object-cover"
-                  />
-                  {!remoteConnected ? (
-                    <div className="absolute inset-0 grid place-items-center bg-[radial-gradient(circle_at_top,rgba(26,107,90,0.3),rgba(7,16,24,0.95))]">
-                      <div className="text-center">
-                        <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-white/10 text-white/85">
-                          <Video className="h-9 w-9" />
-                        </div>
-                        <p className="mt-4 text-[15px] font-semibold text-white">Waiting for video</p>
+              <div className="relative h-full overflow-hidden rounded-[32px] border border-white/10 bg-black shadow-[0_20px_70px_rgba(0,0,0,0.4)]">
+                <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
+
+                {!remoteConnected ? (
+                  <div className="absolute inset-0 grid place-items-center bg-[radial-gradient(circle_at_top,rgba(26,107,90,0.28),rgba(7,16,24,0.96))]">
+                    <div className="text-center">
+                      <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-white/10 text-white/90 shadow-[0_18px_40px_rgba(0,0,0,0.35)]">
+                        <Video className="h-10 w-10" />
                       </div>
+                      <p className="mt-4 text-[16px] font-semibold text-white">
+                        {activeCall.phase === "dialing" ? "Dialing video..." : "Waiting for video"}
+                      </p>
+                      <p className="mt-1 text-[13px] text-white/55">Keep the app open until the other person joins.</p>
                     </div>
-                  ) : null}
+                  </div>
+                ) : null}
+
+                <div className="absolute left-4 top-4 rounded-full border border-white/10 bg-black/40 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/75 backdrop-blur-sm">
+                  Live video
                 </div>
 
-                <div className="flex flex-col gap-3">
-                  <div className="rounded-[24px] border border-white/10 bg-white/5 p-3">
-                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">You</p>
-                    <video
-                      ref={localVideoRef}
-                      autoPlay
-                      muted
-                      playsInline
-                      className="aspect-[3/4] w-full rounded-[18px] bg-black object-cover"
-                    />
+                <div className="absolute bottom-4 right-4 w-[38%] min-w-[120px] max-w-[180px] overflow-hidden rounded-[20px] border border-white/10 bg-black shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
+                  <div className="border-b border-white/10 bg-white/5 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/55">
+                    You
                   </div>
-                  <div className="rounded-[24px] border border-white/10 bg-white/5 p-3">
-                    <p className="text-[12px] text-white/55">Audio is live once the call connects. You can end the call anytime.</p>
-                  </div>
+                  <video ref={localVideoRef} autoPlay muted playsInline className="aspect-[3/4] w-full bg-black object-cover" />
                 </div>
               </div>
             ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-4 rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(26,107,90,0.2),rgba(7,16,24,0.96))] px-6 text-center">
-                <div className="grid h-24 w-24 place-items-center rounded-full bg-[#1C7E5D] text-white shadow-[0_18px_40px_rgba(0,0,0,0.35)]">
-                  <Phone className="h-10 w-10" />
+              <div className="flex h-full flex-col items-center justify-center gap-6 rounded-[32px] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(26,107,90,0.22),rgba(7,16,24,0.96))] px-6 text-center shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
+                <div className="relative">
+                  <span className="absolute inset-0 animate-ping rounded-full bg-[#1C7E5D]/25" />
+                  <span className="absolute inset-2 animate-pulse rounded-full bg-[#1C7E5D]/15" />
+                  <div className="relative grid h-28 w-28 place-items-center rounded-full bg-[#1C7E5D] text-white shadow-[0_18px_40px_rgba(0,0,0,0.35)]">
+                    <Phone className="h-11 w-11" />
+                  </div>
                 </div>
+
                 <div>
-                  <h3 className="text-[22px] font-semibold text-white">{activeCall.peerName}</h3>
-                  <p className="mt-1 text-[13px] text-white/55">
+                  <h3 className="text-[24px] font-semibold text-white">{activeCall.peerName}</h3>
+                  <p className="mt-2 text-[13px] leading-5 text-white/55">
                     {activeCall.phase === "dialing"
                       ? "Calling now..."
                       : activeCall.phase === "connecting"
                         ? "Connecting audio..."
                         : remoteConnected
-                          ? "Connected"
+                          ? "Connected and ready"
                           : "Waiting for the other side"}
                   </p>
                 </div>
+
+                <div className="grid w-full max-w-[260px] grid-cols-5 items-end gap-2 px-4">
+                  {[
+                    "h-3",
+                    "h-5",
+                    "h-8",
+                    "h-5",
+                    "h-3",
+                  ].map((barHeight, index) => (
+                    <span
+                      key={barHeight + index}
+                      className={cn("rounded-full bg-[#49d18f]/85", barHeight, index % 2 === 0 ? "animate-pulse" : "animate-none")}
+                    />
+                  ))}
+                </div>
+
+                <p className="text-[12px] text-white/45">Audio is live once the call connects. You can mute or end it anytime.</p>
                 <audio ref={remoteAudioRef} autoPlay />
               </div>
             )}
           </div>
 
-          <div className="border-t border-white/10 bg-[#081019] px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-3">
+          <div className="border-t border-white/10 bg-[#081019]/95 px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-3 backdrop-blur">
             <div className="flex items-center justify-center gap-3">
               <button
                 type="button"
@@ -901,7 +1043,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
                     track.enabled = !track.enabled;
                   });
                 }}
-                className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white/80 hover:bg-white/15"
+                className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white/80 transition hover:bg-white/15 active:scale-[0.98]"
                 aria-label="Mute"
               >
                 <Mic className="h-5 w-5" />
@@ -915,7 +1057,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
                       track.enabled = !track.enabled;
                     });
                   }}
-                  className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white/80 hover:bg-white/15"
+                  className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white/80 transition hover:bg-white/15 active:scale-[0.98]"
                   aria-label="Toggle camera"
                 >
                   <Video className="h-5 w-5" />
@@ -924,7 +1066,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
               <button
                 type="button"
                 onClick={() => endCall()}
-                className="grid h-14 w-14 place-items-center rounded-full bg-[#a63a3a] text-white shadow-[0_10px_24px_rgba(166,58,58,0.35)]"
+                className="grid h-14 w-14 place-items-center rounded-full bg-[#a63a3a] text-white shadow-[0_10px_24px_rgba(166,58,58,0.35)] transition hover:brightness-110 active:scale-[0.98]"
                 aria-label="End call"
               >
                 <Phone className="h-6 w-6 rotate-[135deg]" />
@@ -961,18 +1103,12 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
                 <img src={pendingAttachment.mediaUrl} alt={pendingAttachment.mediaName} className="max-h-56 w-full object-cover" />
               </div>
             ) : pendingAttachment.kind === "voice" ? (
-              <div className="flex items-center gap-3 rounded-[16px] border border-white/10 bg-black/20 px-3 py-3">
-                <div className="grid h-10 w-10 place-items-center rounded-full bg-[#0A7C53] text-white">
-                  <Mic className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-medium text-white">Voice note ready</p>
-                  <p className="text-[12px] text-white/45">{formatDuration(pendingAttachment.durationMs)}</p>
-                </div>
-                <audio controls className="w-[180px] max-w-full">
-                  <source src={pendingAttachment.mediaUrl} type={pendingAttachment.mediaType} />
-                </audio>
-              </div>
+              <VoiceNoteBubble
+                src={pendingAttachment.mediaUrl}
+                mediaType={pendingAttachment.mediaType}
+                durationMs={pendingAttachment.durationMs}
+                caption="Voice note ready"
+              />
             ) : (
               <div className="flex items-center gap-3 rounded-[16px] border border-white/10 bg-black/20 px-3 py-3">
                 <div className="grid h-10 w-10 place-items-center rounded-full bg-[#17311f] text-[#49d18f]">
@@ -1081,7 +1217,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  handleSend();
+                  void handleSend();
                 }
               }}
               placeholder="Message"
@@ -1091,7 +1227,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
 
             <button
               type="button"
-              onClick={handleQuickSend}
+              onClick={() => void handleQuickSend()}
               className={cn(
                 "grid h-11 w-11 shrink-0 place-items-center rounded-full transition",
                 draft.trim() || pendingAttachment
@@ -1149,12 +1285,7 @@ function MessageContent({ message }: { message: ChatMessage }) {
     return (
       <div className="space-y-2">
         {hasCaption ? <p className="whitespace-pre-wrap break-words text-[13px] leading-5">{message.text}</p> : null}
-        <div className="rounded-[16px] bg-white/10 p-2">
-          <audio controls className="w-full">
-            <source src={message.mediaUrl} type={message.mediaType ?? "audio/webm"} />
-          </audio>
-          <p className="mt-1 text-[11px] text-white/45">{formatDuration(message.durationMs)}</p>
-        </div>
+        <VoiceNoteBubble src={message.mediaUrl} mediaType={message.mediaType} durationMs={message.durationMs} />
       </div>
     );
   }
@@ -1182,4 +1313,101 @@ function MessageContent({ message }: { message: ChatMessage }) {
   }
 
   return <p className="whitespace-pre-wrap break-words text-[13px] leading-5 text-white">{message.text}</p>;
+}
+
+function VoiceNoteBubble({
+  src,
+  mediaType,
+  durationMs,
+  caption,
+}: {
+  src: string;
+  mediaType?: string;
+  durationMs?: number;
+  caption?: string;
+}) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const updateProgress = () => {
+      const totalSeconds = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : durationMs ? durationMs / 1000 : 0;
+      if (!totalSeconds) return;
+      setProgress(Math.min(100, (audio.currentTime / totalSeconds) * 100));
+    };
+
+    const syncPlayingState = () => {
+      setIsPlaying(!audio.paused && !audio.ended);
+    };
+
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setProgress(100);
+    };
+
+    audio.addEventListener("play", syncPlayingState);
+    audio.addEventListener("pause", syncPlayingState);
+    audio.addEventListener("timeupdate", updateProgress);
+    audio.addEventListener("loadedmetadata", updateProgress);
+    audio.addEventListener("ended", handleEnded);
+    const timer = window.setInterval(updateProgress, 120);
+
+    updateProgress();
+    syncPlayingState();
+
+    return () => {
+      audio.removeEventListener("play", syncPlayingState);
+      audio.removeEventListener("pause", syncPlayingState);
+      audio.removeEventListener("timeupdate", updateProgress);
+      audio.removeEventListener("loadedmetadata", updateProgress);
+      audio.removeEventListener("ended", handleEnded);
+      window.clearInterval(timer);
+    };
+  }, [durationMs, src]);
+
+  const togglePlayback = async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      try {
+        await audio.play();
+      } catch {}
+      return;
+    }
+    audio.pause();
+  };
+
+  return (
+    <div className="flex items-center gap-3 rounded-[18px] border border-white/10 bg-[linear-gradient(135deg,rgba(28,126,93,0.22),rgba(255,255,255,0.06))] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <audio ref={audioRef} preload="metadata">
+        <source src={src} type={mediaType ?? "audio/webm"} />
+      </audio>
+
+      <button
+        type="button"
+        onClick={() => void togglePlayback()}
+        className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/15"
+        aria-label={isPlaying ? "Pause voice note" : "Play voice note"}
+      >
+        {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 pl-[1px]" />}
+      </button>
+
+      <div className="min-w-0 flex-1">
+        <div className="mb-2 flex items-center gap-2">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/10">
+            <div
+              className="h-full rounded-full bg-[#49d18f] transition-[width] duration-150"
+              style={{ width: `${Math.max(8, progress)}%` }}
+            />
+          </div>
+          <span className="shrink-0 text-[11px] font-medium text-white/60">{formatDuration(durationMs)}</span>
+        </div>
+        <p className="truncate text-[12px] text-white/55">{caption ?? "Voice message"}</p>
+      </div>
+    </div>
+  );
 }

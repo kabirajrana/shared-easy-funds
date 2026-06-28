@@ -13,11 +13,13 @@ import {
 } from "@/services/sharedBackend";
 import { sendInviteEmail } from "@/lib/api/sendInviteEmail.functions";
 import {
+  addSharedExpenseFn,
   acceptSharedInviteFn,
   createSharedGroupFn,
   declineSharedInviteFn,
   deleteSharedGroupFn,
   getSharedGroupFn,
+  getSharedExpensesFn,
   getSharedMembersFn,
   getSharedMyGroupsFn,
   getSharedNotificationsFn,
@@ -81,6 +83,7 @@ export interface Notification {
     | "group_invite"
     | "invite_accepted"
     | "invite_declined"
+    | "expense_added"
     | "request"
     | "approval"
     | "rejection"
@@ -115,6 +118,11 @@ export interface Notification {
     inviteCode?: string;
     leaderId?: string;
     status?: "pending" | "accepted" | "declined" | "expired";
+    expenseId?: string;
+    expenseTitle?: string;
+    expenseAmount?: number;
+    paidByName?: string;
+    paidById?: string;
   };
 }
 
@@ -385,6 +393,7 @@ function normalizeNotification(raw: StoredNotificationLike | unknown): Notificat
       note.type === "group_invite" ||
       note.type === "invite_accepted" ||
       note.type === "invite_declined" ||
+      note.type === "expense_added" ||
       note.type === "request" ||
       note.type === "approval" ||
       note.type === "rejection" ||
@@ -1504,6 +1513,22 @@ export const api = {
 
   // ---------- TRANSACTIONS ----------
   async getTransactions(groupId: string): Promise<Transaction[]> {
+    if (!SHARED_BACKEND_ENABLED) {
+      const expenses = await getSharedExpensesFn({ data: { groupId } });
+      return delay(
+        expenses.map((expense) => ({
+          id: expense.id,
+          group_id: expense.groupId ?? groupId,
+          type: expense.type === "income" ? "contribution" : "expense",
+          category: expense.category,
+          amount: expense.amount,
+          description: expense.description,
+          date: expense.date,
+          created_by: expense.paidById,
+          status: "approved" as TxStatus,
+        })),
+      );
+    }
     if (USE_MOCK)
       return delay(
         transactions
@@ -1519,6 +1544,39 @@ export const api = {
       asLeader?: boolean;
     }
   ): Promise<Transaction> {
+    if (!SHARED_BACKEND_ENABLED) {
+      const tx: Transaction = {
+        id: `t${Date.now()}`,
+        group_id: groupId,
+        created_by: currentUserId,
+        status: input.type === "contribution" ? "verified" : "approved",
+        type: input.type,
+        category: input.category,
+        amount: input.amount,
+        description: input.description,
+        date: input.date,
+        receipt_url: input.receipt_url,
+      };
+      await addSharedExpenseFn({
+        data: {
+          expense: {
+            id: tx.id,
+            description: tx.description ?? tx.category,
+            title: tx.description ?? tx.category,
+            amount: tx.amount,
+            category: tx.category as any,
+            date: tx.date,
+            paidById: tx.created_by,
+            groupId: tx.group_id,
+            splitType: "equal",
+            splits: [],
+            createdAt: iso(new Date()),
+            type: tx.type === "contribution" ? "income" : "expense",
+          },
+        },
+      });
+      return delay(tx);
+    }
     if (USE_MOCK) {
       const g = groups.find((x) => x.id === groupId);
       const isSolo = !!g?.solo;

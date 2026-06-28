@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Cell,
   Pie,
@@ -23,6 +23,7 @@ import { useSession } from "@/lib/session";
 export function AnalyticsPage() {
   const { user } = useSession();
   const expenses = useExpenseStore((state) => state.expenses);
+  const hydrateWorkspace = useExpenseStore((state) => state.hydrateWorkspace);
   const groups = useGroupStore((state) => state.groups);
   const activeGroupId = useGroupStore((state) => state.activeGroupId);
   const [monthIndex, setMonthIndex] = useState(() => new Date().getMonth());
@@ -36,6 +37,10 @@ export function AnalyticsPage() {
   const userId = user?.id ?? "";
   const activeGroup = groups.find((group) => group.id === activeGroupId);
   const budget = activeGroup?.targetBudget ?? user?.monthlyBudget ?? 0;
+
+  useEffect(() => {
+    void hydrateWorkspace();
+  }, [hydrateWorkspace]);
 
   const selectedMonthExpenses = useMemo(() => {
     if (activeGroup) {

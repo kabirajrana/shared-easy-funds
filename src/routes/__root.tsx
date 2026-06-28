@@ -16,6 +16,7 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { applyTheme, getInitialTheme } from "@/lib/theme";
 import { useEffect } from "react";
 import { useNotificationStream } from "@/hooks/useNotificationStream";
+import { InstallAppBanner } from "@/components/pwa/InstallAppBanner";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   notFoundComponent: () => (
@@ -83,6 +84,7 @@ function RootComponent() {
         <NotificationBridge />
         <MobileFrame>
           <main className="flex-1 overflow-y-auto">
+            <InstallAppBanner className="mx-4 mt-4" />
             <Outlet />
           </main>
           {!hideBottomNav ? <BottomNav /> : null}

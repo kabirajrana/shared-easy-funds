@@ -36,10 +36,11 @@ function formatTargetDay(day?: number) {
   return `Due every month on the ${day}${suffix}`;
 }
 
-export function GroupDetailPage({ groupId }: { groupId: string }) {
+export function GroupDetailPage({ groupId, highlightExpenseId }: { groupId: string; highlightExpenseId?: string }) {
   const [tab, setTab] = useState<"expenses" | "balances">("expenses");
   const [draftTargetBudget, setDraftTargetBudget] = useState("");
   const qrInputRef = useRef<HTMLInputElement>(null);
+  const expenseRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const navigate = useNavigate();
   const { user, setGroup } = useSession();
   const queryClient = useQueryClient();
@@ -48,6 +49,7 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
   const updateGroup = useGroupStore((state) => state.updateGroup);
   const deleteGroup = useGroupStore((state) => state.deleteGroup);
   const expenses = useExpenseStore((state) => state.expenses);
+  const hydrateWorkspace = useExpenseStore((state) => state.hydrateWorkspace);
   const deleteGroupExpenses = useExpenseStore((state) => state.deleteGroupExpenses);
   const members = group ? groupMembers[group.id] ?? [] : [];
   const canEditBudget = !!group && group.leaderId === user?.id;
@@ -60,6 +62,16 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
   useEffect(() => {
     setDraftTargetBudget(String(group?.targetBudget ?? ""));
   }, [group?.targetBudget]);
+
+  useEffect(() => {
+    void hydrateWorkspace();
+  }, [hydrateWorkspace]);
+
+  useEffect(() => {
+    if (!highlightExpenseId) return;
+    const node = expenseRefs.current[highlightExpenseId];
+    node?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightExpenseId, groupExpenses]);
 
   const saveTargetBudget = useMutation({
     mutationFn: async () => {
@@ -347,7 +359,15 @@ export function GroupDetailPage({ groupId }: { groupId: string }) {
         {tab === "expenses" ? (
           <div className="overflow-hidden rounded-[12px] border border-[var(--saj-border)] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
             {groupExpenses.map((expense, index) => (
-              <div key={expense.id} className={index === groupExpenses.length - 1 ? "" : "border-b border-[var(--saj-border-soft)]"}>
+              <div
+                key={expense.id}
+                ref={(node) => {
+                  expenseRefs.current[expense.id] = node;
+                }}
+                className={`transition ${expense.id === highlightExpenseId ? "bg-[rgba(26,107,90,0.08)] ring-1 ring-inset ring-[rgba(26,107,90,0.28)]" : ""} ${
+                  index === groupExpenses.length - 1 ? "" : "border-b border-[var(--saj-border-soft)]"
+                }`}
+              >
                 <ExpenseItem expense={expense} paidBy={members.find((member) => member.id === expense.paidById)} />
               </div>
             ))}

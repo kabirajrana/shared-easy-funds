@@ -1,19 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const DISMISS_KEY = "sajha.install-banner-dismissed";
+const SEEN_KEY = "sajha.install-banner-seen";
 
-export function InstallAppBanner({ className }: { className?: string }) {
+type InstallAppBannerProps = {
+  className?: string;
+  forceVisible?: boolean;
+};
+
+export function InstallAppBanner({ className, forceVisible = false }: InstallAppBannerProps) {
   const [visible, setVisible] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
-
-  const isDeployedHost = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    const host = window.location.hostname;
-    return host.includes("vercel.app") || host.includes("vercel");
-  }, []);
+  const [firstVisit, setFirstVisit] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -24,14 +25,17 @@ export function InstallAppBanner({ className }: { className?: string }) {
     setInstalled(standalone);
 
     const dismissed = window.localStorage.getItem(DISMISS_KEY) === "1";
-    if (!standalone && !dismissed && isDeployedHost) {
+    const seen = window.localStorage.getItem(SEEN_KEY) === "1";
+    setFirstVisit(!seen);
+
+    if (!standalone && !dismissed && (!seen || forceVisible)) {
       setVisible(true);
     }
 
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
       setDeferredPrompt(event as BeforeInstallPromptEvent);
-      if (!dismissed && !standalone && isDeployedHost) {
+      if (!dismissed && !standalone) {
         setVisible(true);
       }
     };
@@ -43,6 +47,10 @@ export function InstallAppBanner({ className }: { className?: string }) {
       window.localStorage.setItem(DISMISS_KEY, "1");
     };
 
+    if (!seen) {
+      window.localStorage.setItem(SEEN_KEY, "1");
+    }
+
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
     window.addEventListener("appinstalled", handleAppInstalled);
 
@@ -50,9 +58,11 @@ export function InstallAppBanner({ className }: { className?: string }) {
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
       window.removeEventListener("appinstalled", handleAppInstalled);
     };
-  }, [isDeployedHost]);
+  }, [forceVisible]);
 
-  if (!visible || installed || !isDeployedHost) return null;
+  const shouldShowHint = firstVisit && !deferredPrompt;
+
+  if (!visible || installed) return null;
 
   const handleInstall = async () => {
     if (deferredPrompt) {
@@ -93,13 +103,17 @@ export function InstallAppBanner({ className }: { className?: string }) {
       </p>
       <div className="mt-3 flex gap-2">
         <Button type="button" onClick={handleInstall} className="flex-1 rounded-full">
-          Install now
+          {deferredPrompt ? "Install now" : "Got it"}
         </Button>
         <Button type="button" variant="secondary" onClick={dismiss} className="rounded-full">
           Later
         </Button>
       </div>
-      {!deferredPrompt ? (
+      {shouldShowHint ? (
+        <p className="mt-2 text-[11px] text-[var(--saj-muted)]">
+          First time here? Add Sajha to your home screen for a smoother mobile-app style experience.
+        </p>
+      ) : !deferredPrompt ? (
         <p className="mt-2 text-[11px] text-[var(--saj-muted)]">
           If your browser does not show a prompt, open the browser menu and choose Add to Home Screen.
         </p>

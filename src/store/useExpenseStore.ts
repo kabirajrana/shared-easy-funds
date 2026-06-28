@@ -1,5 +1,8 @@
 import { create } from "zustand";
 import type { Expense } from "@/types";
+import { SHARED_BACKEND_ENABLED } from "@/services/sharedBackend";
+import { addSharedExpenseFn, getSharedExpensesFn } from "@/lib/api/sharedStore.functions";
+import { api } from "@/services/api";
 import { formatCurrency } from "@/utils/formatCurrency";
 
 const LS_CURRENT_USER = "sajha.currentUser";
@@ -17,13 +20,13 @@ type MonthlySummary = {
 
 type ExpenseState = {
   expenses: Expense[];
-  addExpense: (expense: Expense) => void;
+  addExpense: (expense: Expense) => Promise<Expense>;
   deleteExpense: (id: string) => void;
   deleteGroupExpenses: (groupId: string) => void;
   getGroupExpenses: (groupId: string) => Expense[];
   getPersonalExpenses: (userId: string) => Expense[];
   getMonthlySummary: (userId: string) => MonthlySummary;
-  hydrateWorkspace: () => void;
+  hydrateWorkspace: () => Promise<void>;
   resetWorkspace: () => void;
 };
 
@@ -68,24 +71,78 @@ function persistExpenses(expenses: Expense[]) {
   } catch {}
 }
 
+function mergeExpenses(existing: Expense[], incoming: Expense[]) {
+  const map = new Map<string, Expense>();
+  for (const expense of [...existing, ...incoming]) {
+    map.set(expense.id, expense);
+  }
+  return [...map.values()].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
 export const useExpenseStore = create<ExpenseState>((set, get) => ({
   expenses: loadExpenses(),
-  hydrateWorkspace: () =>
-    set(() => {
-      const nextExpenses = loadExpenses();
-      return { expenses: nextExpenses };
-    }),
+  hydrateWorkspace: async () => {
+    const localExpenses = loadExpenses();
+    if (!SHARED_BACKEND_ENABLED) {
+      try {
+        const groups = await api.myGroups();
+        const sharedExpenses = (
+          await Promise.all(
+            groups.map(async (group) => {
+              try {
+                return (await getSharedExpensesFn({ data: { groupId: group.id } })) as Expense[];
+              } catch {
+                return [];
+              }
+            }),
+          )
+        ).flat();
+        const nextExpenses = mergeExpenses(
+          localExpenses.filter((expense) => !expense.groupId),
+          sharedExpenses,
+        );
+        persistExpenses(nextExpenses);
+        set({ expenses: nextExpenses });
+        return;
+      } catch {
+        // Fall back to the local cache if shared data is unavailable.
+      }
+    }
+
+    set({ expenses: localExpenses });
+  },
   resetWorkspace: () =>
     set(() => {
       persistExpenses([]);
       return { expenses: [] };
     }),
-  addExpense: (expense) =>
+  addExpense: async (expense) => {
+    if (!expense.groupId) {
+      set((state) => {
+        const next = { expenses: mergeExpenses([expense], state.expenses) };
+        persistExpenses(next.expenses);
+        return next;
+      });
+      return expense;
+    }
+
+    if (!SHARED_BACKEND_ENABLED) {
+      const saved = (await addSharedExpenseFn({ data: { expense } })) as Expense;
+      set((state) => {
+        const next = { expenses: mergeExpenses([saved], state.expenses) };
+        persistExpenses(next.expenses);
+        return next;
+      });
+      return saved;
+    }
+
     set((state) => {
-      const next = { expenses: [expense, ...state.expenses] };
+      const next = { expenses: mergeExpenses([expense], state.expenses) };
       persistExpenses(next.expenses);
       return next;
-    }),
+    });
+    return expense;
+  },
   deleteExpense: (id) =>
     set((state) => {
       const next = { expenses: state.expenses.filter((expense) => expense.id !== id) };
