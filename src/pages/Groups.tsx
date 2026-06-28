@@ -39,6 +39,7 @@ export function GroupsPage() {
       await api.deleteGroupArtifacts(groupId);
       deleteGroupExpenses(groupId);
       deleteGroup(groupId);
+      await hydrateWorkspace();
     },
     onSuccess: async () => {
       setGroup(null);
@@ -58,7 +59,7 @@ export function GroupsPage() {
         ...remote,
       });
       joinGroup(remote.invite_code);
-      hydrateWorkspace();
+      await hydrateWorkspace();
       if (!group) {
         toast.error("Invite code not found.");
         return;

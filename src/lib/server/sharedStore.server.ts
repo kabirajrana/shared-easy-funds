@@ -44,6 +44,7 @@ export type SharedNotification = {
     | "invite_accepted"
     | "invite_declined"
     | "expense_added"
+    | "group_deleted"
     | "request"
     | "approval"
     | "rejection"
@@ -77,6 +78,7 @@ export type SharedNotification = {
     inviterName?: string;
     inviteCode?: string;
     leaderId?: string;
+    leaderName?: string;
     status?: "pending" | "accepted" | "declined" | "expired";
     expenseId?: string;
     expenseTitle?: string;
@@ -687,10 +689,45 @@ export async function declineSharedInvite(input: { notificationId: string; user:
 
 export async function deleteSharedGroup(input: { groupId: string }) {
   const state = await loadState();
+  const group = state.groups.find((entry) => entry.id === input.groupId) ?? null;
+  const members = state.memberships.filter((entry) => entry.group_id === input.groupId);
+  const actor = state.memberships.find((entry) => entry.group_id === input.groupId && entry.role === "leader") ?? null;
+
+  if (group) {
+    const now = iso();
+    for (const member of members) {
+      state.notifications.push({
+        id: crypto.randomUUID(),
+        type: "group_deleted",
+        title: `Group deleted: ${group.name}`,
+        body: `${group.name} was deleted by ${actor?.user_name ?? "the group leader"}.`,
+        message: `${group.name} was deleted by ${actor?.user_name ?? "the group leader"}.`,
+        date: now,
+        created_at: now,
+        read: false,
+        is_read: false,
+        recipient_id: member.user_id,
+        recipient_email: member.user_email,
+        user_id: member.user_id,
+        user_email: member.user_email,
+        data: {
+          groupId: group.id,
+          groupName: group.name,
+          leaderId: actor?.user_id ?? group.leader_id,
+          leaderName: actor?.user_name,
+        },
+      });
+    }
+  }
+
   state.groups = state.groups.filter((entry) => entry.id !== input.groupId);
   state.memberships = state.memberships.filter((entry) => entry.group_id !== input.groupId);
   state.invitations = state.invitations.filter((entry) => entry.group_id !== input.groupId);
-  state.notifications = state.notifications.filter((entry) => (entry.data?.groupId ?? entry.meta?.group_id) !== input.groupId);
+  state.notifications = state.notifications.filter((entry) => {
+    const entryGroupId = entry.data?.groupId ?? entry.meta?.group_id;
+    if (entry.type === "group_deleted" && entryGroupId === input.groupId) return true;
+    return entryGroupId !== input.groupId;
+  });
   state.expenses = state.expenses.filter((entry) => entry.groupId !== input.groupId);
   state.messages = state.messages.filter((entry) => entry.groupId !== input.groupId);
   await persist(state);

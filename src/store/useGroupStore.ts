@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { generateInviteCode } from "@/utils/inviteCode";
 import type { Group, User } from "@/types";
+import { api } from "@/services/api";
 import { useUserStore } from "@/store/useUserStore";
 
 const GROUPS_PREFIX = "sajha.groups";
@@ -11,7 +12,7 @@ type GroupState = {
   groups: Group[];
   groupMembers: Record<string, User[]>;
   activeGroupId: string;
-  hydrateWorkspace: () => void;
+  hydrateWorkspace: () => Promise<void>;
   upsertSharedGroup: (group: {
     id: string;
     name: string;
@@ -129,13 +130,76 @@ function persistWorkspace(state: Pick<GroupState, "groups" | "groupMembers" | "a
   } catch {}
 }
 
+function normalizeMember(raw: any): User | null {
+  const user = raw?.user ?? raw;
+  if (!user || typeof user !== "object") return null;
+  if (typeof user.id !== "string" || typeof user.name !== "string" || typeof user.email !== "string") return null;
+
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    avatarColor: typeof user.avatarColor === "string" ? user.avatarColor : typeof user.avatar_color === "string" ? user.avatar_color : "#888780",
+    avatarImage: typeof user.avatarImage === "string" ? user.avatarImage : typeof user.avatar_url === "string" ? user.avatar_url : undefined,
+    paymentQR: user.paymentQR,
+    monthlyBudget: typeof user.monthlyBudget === "number" ? user.monthlyBudget : 25000,
+    phone: typeof user.phone === "string" ? user.phone : undefined,
+    initials: typeof user.initials === "string" ? user.initials : user.name.slice(0, 2).toUpperCase(),
+  };
+}
+
+let syncReady = false;
+
+function setupSync(refresh: () => Promise<void>) {
+  if (typeof window === "undefined" || syncReady) return;
+  syncReady = true;
+
+  const runRefresh = () => {
+    void refresh();
+  };
+
+  window.addEventListener("focus", runRefresh);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") runRefresh();
+  });
+  window.setInterval(runRefresh, 5000);
+}
+
 export const useGroupStore = create<GroupState>((set, get) => ({
   ...loadWorkspace(),
-  hydrateWorkspace: () =>
-    set(() => {
-      const next = loadWorkspace();
-      return next;
-    }),
+  hydrateWorkspace: async () => {
+    try {
+      const serverGroups = await api.myGroups();
+      const nextGroups = serverGroups.map(normalizeGroup).filter(Boolean) as Group[];
+
+      const nextMembers = Object.fromEntries(
+        await Promise.all(
+          nextGroups.map(async (group) => {
+            try {
+              const members = await api.getMembers(group.id);
+              return [group.id, members.map(normalizeMember).filter(Boolean) as User[]] as const;
+            } catch {
+              return [group.id, []] as const;
+            }
+          }),
+        ),
+      );
+
+      set((state) => {
+        const activeGroupId = state.activeGroupId && nextGroups.some((group) => group.id === state.activeGroupId) ? state.activeGroupId : "";
+        const next = {
+          groups: nextGroups,
+          groupMembers: nextMembers,
+          activeGroupId,
+        };
+        persistWorkspace(next);
+        return next;
+      });
+      return;
+    } catch {
+      set(() => loadWorkspace());
+    }
+  },
   upsertSharedGroup: (group) => {
     const existing = get().groups.find((entry) => entry.id === group.id);
     const nextGroup: Group = {
@@ -339,3 +403,5 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       return next;
     }),
 }));
+
+setupSync(() => useGroupStore.getState().hydrateWorkspace());

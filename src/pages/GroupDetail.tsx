@@ -121,6 +121,7 @@ export function GroupDetailPage({ groupId, highlightExpenseId }: { groupId: stri
       await api.deleteGroupArtifacts(groupId);
       deleteGroupExpenses(groupId);
       deleteGroup(groupId);
+      await hydrateWorkspace();
     },
     onSuccess: async () => {
       setGroup(null);

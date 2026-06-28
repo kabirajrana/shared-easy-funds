@@ -10,6 +10,7 @@ const ICONS = {
   invite_accepted: CheckCircle2,
   invite_declined: XCircle,
   expense_added: Sparkles,
+  group_deleted: XCircle,
   request: Inbox,
   approval: CheckCircle2,
   rejection: XCircle,

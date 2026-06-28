@@ -84,6 +84,7 @@ export interface Notification {
     | "invite_accepted"
     | "invite_declined"
     | "expense_added"
+    | "group_deleted"
     | "request"
     | "approval"
     | "rejection"
@@ -394,6 +395,7 @@ function normalizeNotification(raw: StoredNotificationLike | unknown): Notificat
       note.type === "invite_accepted" ||
       note.type === "invite_declined" ||
       note.type === "expense_added" ||
+      note.type === "group_deleted" ||
       note.type === "request" ||
       note.type === "approval" ||
       note.type === "rejection" ||
