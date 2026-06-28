@@ -7,6 +7,8 @@ import { formatCurrency } from "@/utils/formatCurrency";
 
 const LS_CURRENT_USER = "sajha.currentUser";
 const EXPENSES_KEY = "sajha.expenses";
+const EXPENSES_UPDATED_EVENT = "sajha:expenses-updated";
+const EXPENSES_CHANNEL = "sajha:expenses";
 
 type MonthlySummary = {
   totalSpent: number;
@@ -80,6 +82,21 @@ function mergeExpenses(existing: Expense[], incoming: Expense[]) {
 }
 
 let syncReady = false;
+let expenseChannel: BroadcastChannel | null = null;
+
+function getExpenseChannel() {
+  if (typeof window === "undefined" || !("BroadcastChannel" in window)) return null;
+  if (!expenseChannel) {
+    expenseChannel = new BroadcastChannel(EXPENSES_CHANNEL);
+  }
+  return expenseChannel;
+}
+
+function publishExpensesUpdate() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(EXPENSES_UPDATED_EVENT));
+  getExpenseChannel()?.postMessage({ type: EXPENSES_UPDATED_EVENT });
+}
 
 function setupSync(refresh: () => Promise<void>) {
   if (typeof window === "undefined" || syncReady) return;
@@ -89,11 +106,23 @@ function setupSync(refresh: () => Promise<void>) {
     void refresh();
   };
 
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === EXPENSES_KEY) runRefresh();
+  };
+
   window.addEventListener("focus", runRefresh);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") runRefresh();
   });
-  window.setInterval(runRefresh, 5000);
+  window.addEventListener(EXPENSES_UPDATED_EVENT, runRefresh as EventListener);
+  window.addEventListener("storage", handleStorage);
+  const channel = getExpenseChannel();
+  if (channel) {
+    channel.onmessage = (event) => {
+      if (event.data?.type === EXPENSES_UPDATED_EVENT) runRefresh();
+    };
+  }
+  window.setInterval(runRefresh, 2000);
 }
 
 export const useExpenseStore = create<ExpenseState>((set, get) => ({
@@ -120,6 +149,7 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
         );
         persistExpenses(nextExpenses);
         set({ expenses: nextExpenses });
+        publishExpensesUpdate();
         return;
       } catch {
         // Fall back to the local cache if shared data is unavailable.
@@ -138,6 +168,7 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
       set((state) => {
         const next = { expenses: mergeExpenses([expense], state.expenses) };
         persistExpenses(next.expenses);
+        publishExpensesUpdate();
         return next;
       });
       return expense;
@@ -148,6 +179,7 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
       set((state) => {
         const next = { expenses: mergeExpenses([saved], state.expenses) };
         persistExpenses(next.expenses);
+        publishExpensesUpdate();
         return next;
       });
       return saved;
@@ -156,6 +188,7 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
     set((state) => {
       const next = { expenses: mergeExpenses([expense], state.expenses) };
       persistExpenses(next.expenses);
+      publishExpensesUpdate();
       return next;
     });
     return expense;
@@ -164,12 +197,14 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
     set((state) => {
       const next = { expenses: state.expenses.filter((expense) => expense.id !== id) };
       persistExpenses(next.expenses);
+      publishExpensesUpdate();
       return next;
     }),
   deleteGroupExpenses: (groupId) =>
     set((state) => {
       const next = { expenses: state.expenses.filter((expense) => expense.groupId !== groupId) };
       persistExpenses(next.expenses);
+      publishExpensesUpdate();
       return next;
     }),
   getGroupExpenses: (groupId) => get().expenses.filter((expense) => expense.groupId === groupId),

@@ -25,7 +25,9 @@ export function AddExpensePage() {
   const navigate = useNavigate();
   const user = useUserStore((state) => state.currentUser);
   const groups = useGroupStore((state) => state.groups);
+  const activeGroupId = useGroupStore((state) => state.activeGroupId);
   const groupMembers = useGroupStore((state) => state.groupMembers);
+  const setActiveGroupId = useGroupStore((state) => state.setActiveGroupId);
   const addExpense = useExpenseStore((state) => state.addExpense);
   const hydrateWorkspace = useExpenseStore((state) => state.hydrateWorkspace);
   const [description, setDescription] = useState("");
@@ -34,7 +36,7 @@ export function AddExpensePage() {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [paidById, setPaidById] = useState(user.id);
   const [splitType, setSplitType] = useState<"equal" | "amount" | "percentage">("equal");
-  const [groupId, setGroupId] = useState(groups[0]?.id ?? "");
+  const [groupId, setGroupId] = useState(activeGroupId || groups[0]?.id || "");
 
   const members = useMemo(() => {
     if (!groupId) return [user];
@@ -44,6 +46,14 @@ export function AddExpensePage() {
   useEffect(() => {
     void hydrateWorkspace();
   }, [hydrateWorkspace]);
+
+  useEffect(() => {
+    if (activeGroupId && groupId !== activeGroupId && groups.some((group) => group.id === activeGroupId)) {
+      setGroupId(activeGroupId);
+    } else if (!groupId && groups.length > 0) {
+      setGroupId(activeGroupId || groups[0].id);
+    }
+  }, [activeGroupId, groupId, groups]);
 
   const submit = async () => {
     const parsedAmount = Number(amount);
@@ -65,6 +75,9 @@ export function AddExpensePage() {
         createdAt: new Date().toISOString(),
         type: "expense",
       });
+      if (groupId) {
+        setActiveGroupId(groupId);
+      }
       navigate({ to: groupId ? `/groups/${groupId}` : "/" });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save expense");

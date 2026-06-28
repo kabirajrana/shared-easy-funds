@@ -4,6 +4,7 @@ import type { ChatMessage, User } from "@/types";
 
 const CHATS_KEY = "sajha.groupChats";
 const CHANNEL_NAME = "sajha:group-chat";
+const CHAT_UPDATED_EVENT = "sajha:group-chat-updated";
 
 type ChatState = {
   messages: ChatMessage[];
@@ -82,6 +83,9 @@ function persistMessages(messages: ChatMessage[]) {
 }
 
 function publishUpdate() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(CHAT_UPDATED_EVENT));
+  }
   channel?.postMessage({ type: "chat:updated" });
 }
 
@@ -99,6 +103,7 @@ function setupSync(onChange: () => void) {
   window.addEventListener("storage", (event) => {
     if (event.key === CHATS_KEY) onChange();
   });
+  window.addEventListener(CHAT_UPDATED_EVENT, onChange as EventListener);
 }
 
 export const useChatStore = create<ChatState>((set, get) => {

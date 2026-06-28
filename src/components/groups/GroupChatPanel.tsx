@@ -236,7 +236,7 @@ export function GroupChatPanel({ groupId, groupName }: { groupId: string; groupN
     document.addEventListener("visibilitychange", onVisibilityChange);
     const timer = window.setInterval(() => {
       void syncMessages();
-    }, 3000);
+    }, 1000);
 
     return () => {
       active = false;
