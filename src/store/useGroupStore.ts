@@ -148,6 +148,34 @@ function normalizeMember(raw: any): User | null {
   };
 }
 
+function mergeGroups(localGroups: Group[], serverGroups: Group[]) {
+  if (serverGroups.length === 0) return localGroups;
+
+  const byId = new Map<string, Group>();
+  for (const group of localGroups) byId.set(group.id, group);
+
+  for (const group of serverGroups) {
+    const existing = byId.get(group.id);
+    byId.set(group.id, existing ? { ...existing, ...group } : group);
+  }
+
+  const serverIds = new Set(serverGroups.map((group) => group.id));
+  const preservedLocalGroups = localGroups.filter((group) => !serverIds.has(group.id));
+  return [...serverGroups.map((group) => byId.get(group.id) ?? group), ...preservedLocalGroups];
+}
+
+function mergeMembers(
+  localMembers: Record<string, User[]>,
+  serverMembers: Record<string, User[]>,
+) {
+  const next: Record<string, User[]> = { ...localMembers };
+  for (const [groupId, members] of Object.entries(serverMembers)) {
+    if (members.length === 0 && (localMembers[groupId]?.length ?? 0) > 0) continue;
+    next[groupId] = members.length > 0 ? members : localMembers[groupId] ?? [];
+  }
+  return next;
+}
+
 let syncReady = false;
 
 function setupSync(refresh: () => Promise<void>) {
@@ -169,6 +197,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
   ...loadWorkspace(),
   hydrateWorkspace: async () => {
     try {
+      const local = loadWorkspace();
       const serverGroups = await api.myGroups();
       const nextGroups = serverGroups.map(normalizeGroup).filter(Boolean) as Group[];
 
@@ -186,10 +215,17 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       );
 
       set((state) => {
-        const activeGroupId = state.activeGroupId && nextGroups.some((group) => group.id === state.activeGroupId) ? state.activeGroupId : "";
+        const mergedGroups = mergeGroups(local.groups, nextGroups);
+        const mergedMembers = mergeMembers(local.groupMembers, nextMembers);
+        const activeGroupId =
+          state.activeGroupId && mergedGroups.some((group) => group.id === state.activeGroupId)
+            ? state.activeGroupId
+            : local.activeGroupId && mergedGroups.some((group) => group.id === local.activeGroupId)
+              ? local.activeGroupId
+              : "";
         const next = {
-          groups: nextGroups,
-          groupMembers: nextMembers,
+          groups: mergedGroups,
+          groupMembers: mergedMembers,
           activeGroupId,
         };
         persistWorkspace(next);
