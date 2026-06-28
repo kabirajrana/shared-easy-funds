@@ -9,9 +9,11 @@ export type SharedGroup = {
   leader_id: string;
   monthly_target: number;
   target_day_of_month?: number;
+  target_date?: string;
   qr_image_url?: string;
   qr_label?: string;
   avatar_url?: string;
+  avatar_color?: string;
   solo?: boolean;
 };
 
@@ -326,6 +328,7 @@ export async function createSharedGroup(input: {
   target_day_of_month?: number;
   targetDate?: string;
   avatar_url?: string;
+  avatarColor?: string;
   leader: { id: string; name: string; email: string };
   solo?: boolean;
   memberEmails?: string[];
@@ -338,7 +341,9 @@ export async function createSharedGroup(input: {
     leader_id: input.leader.id,
     monthly_target: input.monthly_target,
     target_day_of_month: input.target_day_of_month,
+    target_date: input.targetDate,
     avatar_url: input.avatar_url,
+    avatar_color: input.avatarColor,
     solo: !!input.solo,
   };
 
@@ -379,6 +384,38 @@ export async function createSharedGroup(input: {
 
   await persist(state);
   return { group, memberships: state.memberships.filter((entry) => entry.group_id === group.id) };
+}
+
+export async function updateSharedGroup(input: {
+  groupId: string;
+  patch: {
+    name?: string;
+    monthly_target?: number;
+    target_day_of_month?: number;
+    targetDate?: string | null;
+    avatar_url?: string | null;
+    avatarColor?: string | null;
+    qr_image_url?: string | null;
+    qr_label?: string | null;
+    solo?: boolean;
+  };
+}) {
+  const state = await loadState();
+  const group = state.groups.find((entry) => entry.id === input.groupId);
+  if (!group) throw new Error("Group not found");
+
+  if (typeof input.patch.name === "string") group.name = input.patch.name;
+  if (typeof input.patch.monthly_target === "number") group.monthly_target = input.patch.monthly_target;
+  if (typeof input.patch.target_day_of_month === "number") group.target_day_of_month = input.patch.target_day_of_month;
+  if (input.patch.targetDate !== undefined) group.target_date = input.patch.targetDate ?? undefined;
+  if (input.patch.avatar_url !== undefined) group.avatar_url = input.patch.avatar_url ?? undefined;
+  if (input.patch.avatarColor !== undefined) group.avatar_color = input.patch.avatarColor ?? undefined;
+  if (input.patch.qr_image_url !== undefined) group.qr_image_url = input.patch.qr_image_url ?? undefined;
+  if (input.patch.qr_label !== undefined) group.qr_label = input.patch.qr_label ?? undefined;
+  if (typeof input.patch.solo === "boolean") group.solo = input.patch.solo;
+
+  await persist(state);
+  return group;
 }
 
 export async function addSharedExpense(input: { expense: Expense }) {

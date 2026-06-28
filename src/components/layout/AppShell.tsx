@@ -5,6 +5,7 @@ import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { useGroupStore } from "@/store/useGroupStore";
 import { toast } from "sonner";
+import { api } from "@/services/api";
 import { NotificationBell } from "@/components/NotificationBell";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -41,7 +42,7 @@ export function AppShell({
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { user, group, role, setGroup } = useSession();
-  const updateGroup = useGroupStore((state) => state.updateGroup);
+  const upsertSharedGroup = useGroupStore((state) => state.upsertSharedGroup);
   const setActiveGroupId = useGroupStore((state) => state.setActiveGroupId);
   const isHome = pathname === "/";
   const canEdit = !back && isHome && role === "leader" && !!group;
@@ -73,30 +74,32 @@ export function AppShell({
     reader.readAsDataURL(f);
   };
 
-  const save = () => {
+  const save = async () => {
     if (!group) return;
     const nextBudget = Number(draftBudget);
     if (!Number.isFinite(nextBudget) || nextBudget <= 0) {
       toast.error("Please enter a valid target budget.");
       return;
     }
-    const nextGroup = {
-      ...group,
-      name: draftName.trim() || group.name,
-      avatar_url: draftAvatar,
-      targetDate: draftTargetDate || undefined,
-      targetBudget: nextBudget,
-    };
-    updateGroup(group.id, {
-      name: nextGroup.name,
-      avatar_url: nextGroup.avatar_url,
-      targetDate: nextGroup.targetDate,
-      targetBudget: nextGroup.targetBudget,
-    });
-    setActiveGroupId(group.id);
-    setGroup(nextGroup);
-    setEditOpen(false);
-    toast.success("Group budget saved");
+    try {
+      const remote = await api.updateGroup(group.id, {
+        name: draftName.trim() || group.name,
+        targetBudget: nextBudget,
+        targetDate: draftTargetDate || undefined,
+        avatarImage: draftAvatar,
+      });
+      const nextGroup = upsertSharedGroup({
+        ...remote,
+        targetDate: draftTargetDate || undefined,
+        avatarImage: draftAvatar,
+      });
+      setActiveGroupId(group.id);
+      setGroup(nextGroup);
+      setEditOpen(false);
+      toast.success("Group budget saved");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save group");
+    }
   };
 
   return (

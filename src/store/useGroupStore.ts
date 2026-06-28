@@ -20,9 +20,11 @@ type GroupState = {
     leader_id: string;
     monthly_target: number;
     target_day_of_month?: number;
+    target_date?: string;
     qr_image_url?: string;
     qr_label?: string;
     avatar_url?: string;
+    avatar_color?: string;
     solo?: boolean;
     targetDate?: string;
     avatarImage?: string;
@@ -151,17 +153,9 @@ function normalizeMember(raw: any): User | null {
 function mergeGroups(localGroups: Group[], serverGroups: Group[]) {
   if (serverGroups.length === 0) return localGroups;
 
-  const byId = new Map<string, Group>();
-  for (const group of serverGroups) byId.set(group.id, group);
-
-  for (const group of localGroups) {
-    const existing = byId.get(group.id);
-    byId.set(group.id, existing ? { ...existing, ...group } : group);
-  }
-
   const serverIds = new Set(serverGroups.map((group) => group.id));
   const preservedLocalGroups = localGroups.filter((group) => !serverIds.has(group.id));
-  return [...serverGroups.map((group) => byId.get(group.id) ?? group), ...preservedLocalGroups];
+  return [...serverGroups, ...preservedLocalGroups];
 }
 
 function mergeMembers(
@@ -241,14 +235,14 @@ export const useGroupStore = create<GroupState>((set, get) => ({
     const nextGroup: Group = {
       id: group.id,
       name: group.name,
-      avatarColor: group.avatarColor ?? existing?.avatarColor ?? "#1A6B5A",
+      avatarColor: group.avatarColor ?? group.avatar_color ?? existing?.avatarColor ?? "#1A6B5A",
       avatarImage: group.avatarImage ?? existing?.avatarImage ?? group.avatar_url,
       inviteCode: group.invite_code,
       leaderId: group.leader_id,
       memberIds: existing?.memberIds ?? [],
       targetBudget: group.monthly_target,
       targetDayOfMonth: group.target_day_of_month,
-      targetDate: group.targetDate ?? existing?.targetDate,
+      targetDate: group.targetDate ?? group.target_date ?? existing?.targetDate,
       paymentQR: group.qr_image_url || group.qr_label
         ? {
             provider: "eSewa",

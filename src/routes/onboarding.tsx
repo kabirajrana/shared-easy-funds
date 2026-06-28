@@ -75,6 +75,7 @@ function Onboarding() {
         const remote = await api.createGroup(name.trim() || `${user.name} Fund`, target, {
           solo: true,
           targetDayOfMonth,
+          targetDate: undefined,
           leader: user,
         });
         const g = upsertSharedGroup({
@@ -91,6 +92,7 @@ function Onboarding() {
       } else if (mode === "create") {
         const remote = await api.createGroup(name.trim() || `${user.name}'s Group`, target, {
           targetDayOfMonth,
+          targetDate: undefined,
           leader: user,
         });
         const g = upsertSharedGroup({

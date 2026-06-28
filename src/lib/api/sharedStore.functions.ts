@@ -13,9 +13,25 @@ const createGroupInput = z.object({
   target_day_of_month: z.number().int().min(1).max(31).optional(),
   targetDate: z.string().optional(),
   avatar_url: z.string().optional(),
+  avatarColor: z.string().optional(),
   solo: z.boolean().optional(),
   leader: userInput,
   memberEmails: z.array(z.string().email()).optional(),
+});
+
+const updateGroupInput = z.object({
+  groupId: z.string().min(1),
+  patch: z.object({
+    name: z.string().optional(),
+    monthly_target: z.number().finite().nonnegative().optional(),
+    target_day_of_month: z.number().int().min(1).max(31).optional(),
+    targetDate: z.string().nullable().optional(),
+    avatar_url: z.string().nullable().optional(),
+    avatarColor: z.string().nullable().optional(),
+    qr_image_url: z.string().nullable().optional(),
+    qr_label: z.string().nullable().optional(),
+    solo: z.boolean().optional(),
+  }),
 });
 
 const joinGroupInput = z.object({
@@ -180,6 +196,13 @@ export const deleteSharedGroupFn = createServerFn({ method: "POST" })
     const { deleteSharedGroup } = await store();
     await deleteSharedGroup(data);
     return { success: true as const };
+  });
+
+export const updateSharedGroupFn = createServerFn({ method: "POST" })
+  .validator(updateGroupInput)
+  .handler(async ({ data }) => {
+    const { updateSharedGroup } = await store();
+    return updateSharedGroup({ groupId: data.groupId, patch: data.patch });
   });
 
 export const addSharedExpenseFn = createServerFn({ method: "POST" })

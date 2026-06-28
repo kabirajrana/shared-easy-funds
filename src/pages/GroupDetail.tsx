@@ -48,7 +48,8 @@ export function GroupDetailPage({ groupId, highlightExpenseId }: { groupId: stri
   const group = useGroupStore((state) => state.groups.find((entry) => entry.id === groupId));
   const groupMembers = useGroupStore((state) => state.groupMembers);
   const hydrateGroupWorkspace = useGroupStore((state) => state.hydrateWorkspace);
-  const updateGroup = useGroupStore((state) => state.updateGroup);
+  const upsertSharedGroup = useGroupStore((state) => state.upsertSharedGroup);
+  const setActiveGroupId = useGroupStore((state) => state.setActiveGroupId);
   const deleteGroup = useGroupStore((state) => state.deleteGroup);
   const expenses = useExpenseStore((state) => state.expenses);
   const hydrateWorkspace = useExpenseStore((state) => state.hydrateWorkspace);
@@ -93,8 +94,10 @@ export function GroupDetailPage({ groupId, highlightExpenseId }: { groupId: stri
       if (!Number.isFinite(nextBudget) || nextBudget <= 0) {
         throw new Error("Please enter a valid target budget.");
       }
-      updateGroup(group.id, { targetBudget: nextBudget });
-      setGroup({ ...group, targetBudget: nextBudget });
+      const remote = await api.updateGroup(group.id, { targetBudget: nextBudget });
+      const nextGroup = upsertSharedGroup({ ...remote });
+      setActiveGroupId(group.id);
+      setGroup(nextGroup);
       return nextBudget;
     },
     onSuccess: () => {
@@ -162,14 +165,17 @@ export function GroupDetailPage({ groupId, highlightExpenseId }: { groupId: stri
     if (!group || !file) return;
 
     const reader = new FileReader();
-    reader.onload = () => {
-      const nextQr = {
-        provider: group.paymentQR?.provider ?? "eSewa",
-        name: group.paymentQR?.name ?? `${group.name} Wallet`,
-        qrImage: reader.result as string,
-      };
-      updateGroup(group.id, { paymentQR: nextQr });
-      toast.success("QR code attached");
+    reader.onload = async () => {
+      try {
+        const nextQrLabel = group.paymentQR?.name ?? `${group.name} Wallet`;
+        const remote = await api.uploadQr(group.id, reader.result as string, nextQrLabel);
+        const nextGroup = upsertSharedGroup({ ...remote });
+        setActiveGroupId(group.id);
+        setGroup(nextGroup);
+        toast.success("QR code attached");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not attach QR");
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -203,8 +209,8 @@ export function GroupDetailPage({ groupId, highlightExpenseId }: { groupId: stri
     return (
       <div className="px-4 py-4">
         <PageHeader title="Group" />
-        <div className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4 text-sm text-[var(--saj-muted)]">
-          Restoring your group workspace...
+        <div className="rounded-[12px] border border-[var(--saj-border)] bg-white p-4">
+          <div className="h-5 w-40 animate-pulse rounded bg-[var(--saj-border-soft)]" />
         </div>
       </div>
     );

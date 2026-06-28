@@ -5,6 +5,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { AuthGate } from "@/components/layout/AuthGate";
 import { api } from "@/services/api";
 import { useSession } from "@/lib/session";
+import { useGroupStore } from "@/store/useGroupStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,8 +18,10 @@ export const Route = createFileRoute("/qr")({
 });
 
 function QrPage() {
-  const { group, role } = useSession();
+  const { group, role, setGroup } = useSession();
   const qc = useQueryClient();
+  const upsertSharedGroup = useGroupStore((state) => state.upsertSharedGroup);
+  const setActiveGroupId = useGroupStore((state) => state.setActiveGroupId);
   const { data } = useQuery({
     queryKey: ["qr", group?.id],
     queryFn: () => api.getQr(group!.id),
@@ -32,10 +35,17 @@ function QrPage() {
     if (!f) return;
     const r = new FileReader();
     r.onload = async () => {
-      await api.uploadQr(group!.id, r.result as string, label || "Payment QR");
-      qc.invalidateQueries({ queryKey: ["qr"] });
-      setEditing(false);
-      toast.success("QR updated");
+      try {
+        const remote = await api.uploadQr(group!.id, r.result as string, label || "Payment QR");
+        const nextGroup = upsertSharedGroup({ ...remote });
+        setActiveGroupId(group!.id);
+        setGroup(nextGroup);
+        qc.invalidateQueries({ queryKey: ["qr"] });
+        setEditing(false);
+        toast.success("QR updated");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not update QR");
+      }
     };
     r.readAsDataURL(f);
   };

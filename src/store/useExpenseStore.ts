@@ -79,6 +79,23 @@ function mergeExpenses(existing: Expense[], incoming: Expense[]) {
   return [...map.values()].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
+let syncReady = false;
+
+function setupSync(refresh: () => Promise<void>) {
+  if (typeof window === "undefined" || syncReady) return;
+  syncReady = true;
+
+  const runRefresh = () => {
+    void refresh();
+  };
+
+  window.addEventListener("focus", runRefresh);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") runRefresh();
+  });
+  window.setInterval(runRefresh, 5000);
+}
+
 export const useExpenseStore = create<ExpenseState>((set, get) => ({
   expenses: loadExpenses(),
   hydrateWorkspace: async () => {
@@ -177,4 +194,6 @@ export const useExpenseStore = create<ExpenseState>((set, get) => ({
     };
   },
 }));
+
+setupSync(() => useExpenseStore.getState().hydrateWorkspace());
 

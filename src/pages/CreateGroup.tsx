@@ -71,6 +71,9 @@ export function CreateGroupPage() {
     }
     api.createGroup(name.trim() || (user?.name ? `${user.name}'s Group` : "My Group"), parsedBudget, {
       targetDayOfMonth: undefined,
+      targetDate,
+      avatarImage,
+      avatarColor,
       leader: user,
     }).then((remote) => {
       const group = upsertSharedGroup({

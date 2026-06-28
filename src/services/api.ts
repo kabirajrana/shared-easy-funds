@@ -27,6 +27,7 @@ import {
   joinSharedGroupFn,
   markAllSharedNotificationsReadFn,
   markSharedNotificationReadFn,
+  updateSharedGroupFn,
 } from "@/lib/api/sharedStore.functions";
 
 export interface User {
@@ -44,9 +45,11 @@ export interface Group {
   leader_id: string;
   monthly_target: number;
   target_day_of_month?: number;
+  target_date?: string;
   qr_image_url?: string;
   qr_label?: string;
   avatar_url?: string;
+  avatar_color?: string;
   solo?: boolean;
 }
 
@@ -774,7 +777,7 @@ export const api = {
   async createGroup(
     name: string,
     monthly_target: number,
-    opts?: { solo?: boolean; memberEmails?: string[]; targetDayOfMonth?: number; leader?: User }
+    opts?: { solo?: boolean; memberEmails?: string[]; targetDayOfMonth?: number; targetDate?: string; avatarImage?: string; avatarColor?: string; leader?: User }
   ): Promise<Group> {
     if (!SHARED_BACKEND_ENABLED) {
       const leader = opts?.leader ?? getCurrentUser() ?? users.find((user) => user.id === currentUserId) ?? null;
@@ -783,14 +786,17 @@ export const api = {
       }
       const result = await createSharedGroupFn({
         data: {
-          name,
-          monthly_target,
-          target_day_of_month: opts?.targetDayOfMonth,
-          solo: !!opts?.solo,
-          leader: {
-            id: leader.id,
-            name: leader.name ?? "Leader",
-            email: leader.email,
+        name,
+        monthly_target,
+        target_day_of_month: opts?.targetDayOfMonth,
+        targetDate: opts?.targetDate,
+        avatar_url: opts?.avatarImage,
+        avatarColor: opts?.avatarColor,
+        solo: !!opts?.solo,
+        leader: {
+          id: leader.id,
+          name: leader.name ?? "Leader",
+          email: leader.email,
           },
           memberEmails: opts?.memberEmails ?? [],
         },
@@ -807,6 +813,9 @@ export const api = {
         leader_id: leaderId,
         monthly_target,
         target_day_of_month: opts?.targetDayOfMonth,
+        target_date: opts?.targetDate,
+        avatar_url: opts?.avatarImage,
+        avatar_color: opts?.avatarColor,
         solo: !!opts?.solo,
       };
       await sharedInsert<Group>("groups", g);
@@ -1395,15 +1404,50 @@ export const api = {
     return http(`/api/groups/${id}`);
   },
 
-  async updateGroup(id: string, patch: Partial<Group>): Promise<Group> {
+  async updateGroup(id: string, patch: Partial<Group> & {
+    targetBudget?: number;
+    targetDate?: string;
+    avatarColor?: string;
+    avatarImage?: string;
+    paymentQR?: { provider?: string; name?: string; qrImage?: string };
+  }): Promise<Group> {
+    const nextPatch = {
+      name: patch.name,
+      monthly_target: patch.monthly_target ?? patch.targetBudget,
+      target_day_of_month: patch.target_day_of_month,
+      targetDate: patch.targetDate,
+      avatar_url: patch.avatar_url ?? patch.avatarImage,
+      avatarColor: patch.avatar_color ?? patch.avatarColor,
+      qr_image_url: patch.qr_image_url ?? patch.paymentQR?.qrImage,
+      qr_label: patch.qr_label ?? patch.paymentQR?.name,
+      solo: patch.solo,
+    };
+
+    if (!SHARED_BACKEND_ENABLED) {
+      const result = await updateSharedGroupFn({
+        data: {
+          groupId: id,
+          patch: nextPatch,
+        },
+      });
+      return delay(result as Group);
+    }
     if (USE_MOCK) {
       const g = refreshGroups().find((x) => x.id === id);
       if (!g) throw new Error("Group not found");
-      Object.assign(g, patch);
+      if (typeof nextPatch.name === "string") g.name = nextPatch.name;
+      if (typeof nextPatch.monthly_target === "number") g.monthly_target = nextPatch.monthly_target;
+      if (typeof nextPatch.target_day_of_month === "number") g.target_day_of_month = nextPatch.target_day_of_month;
+      if (nextPatch.targetDate !== undefined) g.target_date = nextPatch.targetDate;
+      if (nextPatch.avatar_url !== undefined) g.avatar_url = nextPatch.avatar_url;
+      if (nextPatch.avatarColor !== undefined) g.avatar_color = nextPatch.avatarColor;
+      if (nextPatch.qr_image_url !== undefined) g.qr_image_url = nextPatch.qr_image_url;
+      if (nextPatch.qr_label !== undefined) g.qr_label = nextPatch.qr_label;
+      if (typeof nextPatch.solo === "boolean") g.solo = nextPatch.solo;
       persistGroups();
       return delay({ ...g });
     }
-    return http(`/api/groups/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+    return http(`/api/groups/${id}`, { method: "PATCH", body: JSON.stringify(nextPatch) });
   },
 
   async myGroups(): Promise<Group[]> {
@@ -1681,15 +1725,7 @@ export const api = {
 
   // ---------- QR ----------
   async uploadQr(groupId: string, image_url: string, label: string): Promise<Group> {
-    if (USE_MOCK) {
-      const g = refreshGroups().find((x) => x.id === groupId);
-      if (!g) throw new Error("Group not found");
-      g.qr_image_url = image_url;
-      g.qr_label = label;
-      persistGroups();
-      return delay({ ...g });
-    }
-    return http(`/api/groups/${groupId}/qr`, { method: "POST", body: JSON.stringify({ image_url, label }) });
+    return api.updateGroup(groupId, { paymentQR: { name: label, qrImage: image_url } } as any);
   },
 
   async getQr(groupId: string): Promise<{ qr_image_url?: string; qr_label?: string }> {
