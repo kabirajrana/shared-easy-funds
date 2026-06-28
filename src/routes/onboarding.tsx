@@ -31,6 +31,7 @@ function Onboarding() {
   const joinGroup = useGroupStore((state) => state.joinGroup);
   const hydrateWorkspace = useGroupStore((state) => state.hydrateWorkspace);
   const upsertSharedGroup = useGroupStore((state) => state.upsertSharedGroup);
+  const setActiveGroupId = useGroupStore((state) => state.setActiveGroupId);
   const updateBudget = useUserStore((state) => state.updateBudget);
 
   if (!user) return <Navigate to="/auth" replace />;
@@ -82,6 +83,7 @@ function Onboarding() {
           targetDate: undefined,
           avatarImage: undefined,
         });
+        setActiveGroupId(g.id);
         updateBudget(target);
         setGroup(g);
         toast.success("Solo fund created");
@@ -97,6 +99,7 @@ function Onboarding() {
           targetDate: undefined,
           avatarImage: undefined,
         });
+        setActiveGroupId(g.id);
         updateBudget(target);
         setGroup(g);
         const inviteResults = await Promise.allSettled(
@@ -127,12 +130,9 @@ function Onboarding() {
           targetDate: undefined,
           avatarImage: undefined,
         });
-        const local = joinGroup(remote.invite_code);
+        setActiveGroupId(g.id);
+        void joinGroup(remote.invite_code ?? (remote as any).inviteCode ?? code);
         hydrateWorkspace();
-        if (!local) {
-          toast.error("Invalid invite code. Ask the leader to share it again.");
-          return;
-        }
         setGroup(g);
         toast.success(`Joined ${g.name}`);
         navigate({ to: "/" });

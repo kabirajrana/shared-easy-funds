@@ -42,6 +42,7 @@ export function AppShell({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { user, group, role, setGroup } = useSession();
   const updateGroup = useGroupStore((state) => state.updateGroup);
+  const setActiveGroupId = useGroupStore((state) => state.setActiveGroupId);
   const isHome = pathname === "/";
   const canEdit = !back && isHome && role === "leader" && !!group;
 
@@ -92,6 +93,7 @@ export function AppShell({
       targetDate: nextGroup.targetDate,
       targetBudget: nextGroup.targetBudget,
     });
+    setActiveGroupId(group.id);
     setGroup(nextGroup);
     setEditOpen(false);
     toast.success("Group budget saved");

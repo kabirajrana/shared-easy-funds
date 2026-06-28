@@ -152,9 +152,9 @@ function mergeGroups(localGroups: Group[], serverGroups: Group[]) {
   if (serverGroups.length === 0) return localGroups;
 
   const byId = new Map<string, Group>();
-  for (const group of localGroups) byId.set(group.id, group);
+  for (const group of serverGroups) byId.set(group.id, group);
 
-  for (const group of serverGroups) {
+  for (const group of localGroups) {
     const existing = byId.get(group.id);
     byId.set(group.id, existing ? { ...existing, ...group } : group);
   }

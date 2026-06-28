@@ -30,6 +30,7 @@ export function CreateGroupPage() {
   const navigate = useNavigate();
   const { user, hydrated } = useSession();
   const upsertSharedGroup = useGroupStore((state) => state.upsertSharedGroup);
+  const setActiveGroupId = useGroupStore((state) => state.setActiveGroupId);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const initializedNameRef = useRef(false);
   const today = new Date();
@@ -78,6 +79,7 @@ export function CreateGroupPage() {
         avatarImage,
         targetDate,
       });
+      setActiveGroupId(group.id);
       navigate({ to: `/groups/${group.id}` });
     }).catch((error) => {
       toast.error(error?.message ?? "Could not create group");
