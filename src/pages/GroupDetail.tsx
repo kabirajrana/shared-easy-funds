@@ -46,6 +46,7 @@ export function GroupDetailPage({ groupId, highlightExpenseId }: { groupId: stri
   const queryClient = useQueryClient();
   const group = useGroupStore((state) => state.groups.find((entry) => entry.id === groupId));
   const groupMembers = useGroupStore((state) => state.groupMembers);
+  const hydrateGroupWorkspace = useGroupStore((state) => state.hydrateWorkspace);
   const updateGroup = useGroupStore((state) => state.updateGroup);
   const deleteGroup = useGroupStore((state) => state.deleteGroup);
   const expenses = useExpenseStore((state) => state.expenses);
@@ -62,6 +63,10 @@ export function GroupDetailPage({ groupId, highlightExpenseId }: { groupId: stri
   useEffect(() => {
     setDraftTargetBudget(String(group?.targetBudget ?? ""));
   }, [group?.targetBudget]);
+
+  useEffect(() => {
+    void hydrateGroupWorkspace();
+  }, [hydrateGroupWorkspace]);
 
   useEffect(() => {
     void hydrateWorkspace();

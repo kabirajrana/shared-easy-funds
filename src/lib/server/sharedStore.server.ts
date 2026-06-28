@@ -98,6 +98,8 @@ type SharedState = {
 };
 
 const STORE_FILENAME = ".sajha-server-store.json";
+const WORKSPACE_STORE_PATH = path.resolve(process.cwd(), STORE_FILENAME);
+const TEMP_STORE_PATH = path.join("/tmp", STORE_FILENAME);
 
 function normalizePath(value: string) {
   return value.replace(/\\/g, "/");
@@ -109,7 +111,7 @@ function isReadOnlyPath(value: string) {
 }
 
 function getCandidateStorePaths() {
-  return [path.join("/tmp", STORE_FILENAME)].filter((candidate) => !isReadOnlyPath(candidate));
+  return [WORKSPACE_STORE_PATH, TEMP_STORE_PATH].filter((candidate) => !isReadOnlyPath(candidate));
 }
 
 async function canWriteToPath(filePath: string) {
@@ -131,11 +133,11 @@ async function resolveWritableStorePath() {
 }
 
 function getReadableStorePaths() {
-  return [path.join("/tmp", STORE_FILENAME)];
+  return [WORKSPACE_STORE_PATH, TEMP_STORE_PATH];
 }
 
 let cachedState: SharedState | null = null;
-let cachedStorePath = path.join("/tmp", STORE_FILENAME);
+let cachedStorePath = WORKSPACE_STORE_PATH;
 let memoryOnlyStore = false;
 
 function emptyState(): SharedState {

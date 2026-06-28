@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { AuthGate } from "@/components/layout/AuthGate";
 import { GroupChatPanel } from "@/components/groups/GroupChatPanel";
 import { useGroupStore } from "@/store/useGroupStore";
@@ -17,10 +18,34 @@ export const Route = createFileRoute("/groups/$groupId/chat")({
 
 function GroupChatPage({ groupId }: { groupId: string }) {
   const group = useGroupStore((state) => state.groups.find((entry) => entry.id === groupId));
+  const hydrateWorkspace = useGroupStore((state) => state.hydrateWorkspace);
+  const [isHydrating, setIsHydrating] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncGroupWorkspace = async () => {
+      await hydrateWorkspace();
+      if (!cancelled) setIsHydrating(false);
+    };
+
+    void syncGroupWorkspace();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrateWorkspace, groupId]);
 
   return (
     <div className="min-h-dvh bg-[#0b1117]">
-      {group ? (
+      {isHydrating ? (
+        <div className="grid min-h-dvh place-items-center px-6 text-center text-white/80">
+          <div className="rounded-[20px] border border-white/10 bg-white/5 px-5 py-4">
+            <p className="text-[15px] font-semibold">Loading chat</p>
+            <p className="mt-1 text-[12px] text-white/55">Restoring your group and messages...</p>
+          </div>
+        </div>
+      ) : group ? (
         <GroupChatPanel groupId={group.id} groupName={group.name} />
       ) : (
         <div className="grid min-h-dvh place-items-center px-6 text-center text-white/80">
