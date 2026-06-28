@@ -1422,6 +1422,17 @@ export const api = {
       qr_label: patch.qr_label ?? patch.paymentQR?.name,
       solo: patch.solo,
     };
+    const dbPatch = {
+      ...(typeof nextPatch.name === "string" ? { name: nextPatch.name } : {}),
+      ...(typeof nextPatch.monthly_target === "number" ? { monthly_target: nextPatch.monthly_target } : {}),
+      ...(typeof nextPatch.target_day_of_month === "number" ? { target_day_of_month: nextPatch.target_day_of_month } : {}),
+      ...(nextPatch.targetDate !== undefined ? { target_date: nextPatch.targetDate } : {}),
+      ...(nextPatch.avatar_url !== undefined ? { avatar_url: nextPatch.avatar_url } : {}),
+      ...(nextPatch.avatarColor !== undefined ? { avatar_color: nextPatch.avatarColor } : {}),
+      ...(nextPatch.qr_image_url !== undefined ? { qr_image_url: nextPatch.qr_image_url } : {}),
+      ...(nextPatch.qr_label !== undefined ? { qr_label: nextPatch.qr_label } : {}),
+      ...(typeof nextPatch.solo === "boolean" ? { solo: nextPatch.solo } : {}),
+    };
 
     if (!SHARED_BACKEND_ENABLED) {
       const result = await updateSharedGroupFn({
@@ -1446,6 +1457,12 @@ export const api = {
       if (typeof nextPatch.solo === "boolean") g.solo = nextPatch.solo;
       persistGroups();
       return delay({ ...g });
+    }
+    if (SHARED_BACKEND_ENABLED) {
+      const rows = await sharedUpdate<Group>("groups", `id=eq.${encodeURIComponent(id)}`, dbPatch);
+      const updated = rows[0];
+      if (!updated) throw new Error("Group not found");
+      return delay(updated);
     }
     return http(`/api/groups/${id}`, { method: "PATCH", body: JSON.stringify(nextPatch) });
   },
@@ -1731,6 +1748,10 @@ export const api = {
   async getQr(groupId: string): Promise<{ qr_image_url?: string; qr_label?: string }> {
     if (USE_MOCK) {
       const g = refreshGroups().find((x) => x.id === groupId);
+      return delay({ qr_image_url: g?.qr_image_url, qr_label: g?.qr_label });
+    }
+    if (SHARED_BACKEND_ENABLED) {
+      const g = await sharedSelectOne<Group>("groups", "*", `id=eq.${encodeURIComponent(groupId)}`);
       return delay({ qr_image_url: g?.qr_image_url, qr_label: g?.qr_label });
     }
     return http(`/api/groups/${groupId}/qr`);

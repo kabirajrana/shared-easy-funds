@@ -63,7 +63,12 @@ function normalizeGroup(raw: any): Group | null {
     inviteCode: String(raw.invite_code),
     leaderId: String(raw.leaderId ?? raw.leader_id ?? ""),
     memberIds: Array.isArray(raw.memberIds) ? raw.memberIds.map(String) : [],
-    targetBudget: typeof raw.targetBudget === "number" ? raw.targetBudget : raw.target_budget,
+    targetBudget:
+      typeof raw.targetBudget === "number"
+        ? raw.targetBudget
+        : typeof raw.monthly_target === "number"
+          ? raw.monthly_target
+          : raw.target_budget,
     targetDayOfMonth: raw.targetDayOfMonth ?? raw.target_day_of_month,
     targetDate: raw.targetDate ?? raw.target_date,
     paymentQR: raw.paymentQR
