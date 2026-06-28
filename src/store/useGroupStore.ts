@@ -12,6 +12,21 @@ type GroupState = {
   groupMembers: Record<string, User[]>;
   activeGroupId: string;
   hydrateWorkspace: () => void;
+  upsertSharedGroup: (group: {
+    id: string;
+    name: string;
+    invite_code: string;
+    leader_id: string;
+    monthly_target: number;
+    target_day_of_month?: number;
+    qr_image_url?: string;
+    qr_label?: string;
+    avatar_url?: string;
+    solo?: boolean;
+    targetDate?: string;
+    avatarImage?: string;
+    avatarColor?: string;
+  }) => Group;
   resetWorkspace: () => void;
   deleteGroup: (groupId: string) => void;
   createGroup: (input: {
@@ -119,6 +134,43 @@ export const useGroupStore = create<GroupState>((set, get) => ({
   hydrateWorkspace: () =>
     set(() => {
       const next = loadWorkspace();
+      return next;
+    }),
+  upsertSharedGroup: (group) =>
+    set((state) => {
+      const existing = state.groups.find((entry) => entry.id === group.id);
+      const nextGroup: Group = {
+        id: group.id,
+        name: group.name,
+        avatarColor: group.avatarColor ?? existing?.avatarColor ?? "#1A6B5A",
+        avatarImage: group.avatarImage ?? existing?.avatarImage ?? group.avatar_url,
+        inviteCode: group.invite_code,
+        leaderId: group.leader_id,
+        memberIds: existing?.memberIds ?? [],
+        targetBudget: group.monthly_target,
+        targetDayOfMonth: group.target_day_of_month,
+        targetDate: group.targetDate ?? existing?.targetDate,
+        paymentQR: group.qr_image_url || group.qr_label
+          ? {
+              provider: "eSewa",
+              name: String(group.qr_label ?? group.name),
+              qrImage: group.qr_image_url,
+            }
+          : existing?.paymentQR,
+        createdAt: existing?.createdAt ?? new Date().toISOString().slice(0, 10),
+        memberCount: existing?.memberCount,
+        lastUpdated: new Date().toISOString().slice(0, 10),
+        statusText: existing?.statusText,
+        balance: existing?.balance ?? 0,
+      };
+
+      const next = {
+        ...state,
+        groups: state.groups.some((entry) => entry.id === group.id)
+          ? state.groups.map((entry) => (entry.id === group.id ? { ...entry, ...nextGroup } : entry))
+          : [nextGroup, ...state.groups],
+      };
+      persistWorkspace(next);
       return next;
     }),
   generateInviteCode,

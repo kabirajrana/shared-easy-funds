@@ -12,6 +12,20 @@ import {
   sharedUpdate,
 } from "@/services/sharedBackend";
 import { sendInviteEmail } from "@/lib/api/sendInviteEmail.functions";
+import {
+  acceptSharedInviteFn,
+  createSharedGroupFn,
+  declineSharedInviteFn,
+  deleteSharedGroupFn,
+  getSharedGroupFn,
+  getSharedMembersFn,
+  getSharedMyGroupsFn,
+  getSharedNotificationsFn,
+  inviteUserToGroupFn,
+  joinSharedGroupFn,
+  markAllSharedNotificationsReadFn,
+  markSharedNotificationReadFn,
+} from "@/lib/api/sharedStore.functions";
 
 export interface User {
   id: string;
@@ -712,6 +726,23 @@ export const api = {
     monthly_target: number,
     opts?: { solo?: boolean; memberEmails?: string[]; targetDayOfMonth?: number }
   ): Promise<Group> {
+    if (!SHARED_BACKEND_ENABLED) {
+      const result = await createSharedGroupFn({
+        data: {
+          name,
+          monthly_target,
+          target_day_of_month: opts?.targetDayOfMonth,
+          solo: !!opts?.solo,
+          leader: {
+            id: currentUserId || getCurrentUser()?.id || "",
+            name: getCurrentUser()?.name ?? "Leader",
+            email: getCurrentUser()?.email ?? "",
+          },
+          memberEmails: opts?.memberEmails ?? [],
+        },
+      });
+      return delay(result.group as Group);
+    }
     if (SHARED_BACKEND_ENABLED) {
       if (!currentUserId) throw new Error("Please sign in first.");
       const g = {
@@ -837,6 +868,22 @@ export const api = {
   },
 
   async joinGroup(invite_code: string): Promise<Group> {
+    if (!SHARED_BACKEND_ENABLED) {
+      if (!currentUserId) throw new Error("Please sign in first.");
+      const user = getCurrentUser();
+      if (!user) throw new Error("Please sign in first.");
+      const result = await joinSharedGroupFn({
+        data: {
+          inviteCode: invite_code,
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+          },
+        },
+      });
+      return delay(result.group as Group);
+    }
     if (SHARED_BACKEND_ENABLED) {
       if (!currentUserId) throw new Error("Please sign in first.");
       const nextCode = normalizeInviteCode(invite_code);
@@ -886,6 +933,33 @@ export const api = {
   },
 
   async sendGroupInvite(groupId: string, email: string): Promise<void> {
+    if (!SHARED_BACKEND_ENABLED) {
+      if (!currentUserId) throw new Error("Please sign in first.");
+      const sender = getCurrentUser();
+      if (!sender) throw new Error("Please sign in first.");
+      const invitation = await inviteUserToGroupFn({
+        data: {
+          groupId,
+          inviter: {
+            id: sender.id,
+            name: sender.name,
+            email: sender.email,
+          },
+          invitedEmail: email.trim().toLowerCase(),
+        },
+      });
+      void sendInviteEmail({
+        data: {
+          email: email.trim().toLowerCase(),
+          inviterName: sender.name,
+          groupName: (await getSharedGroupFn({ data: { groupId } }))?.name ?? "your group",
+          inviteCode: (await getSharedGroupFn({ data: { groupId } }))?.invite_code ?? "SAJHA-XXXX",
+          invitationId: invitation.id,
+          groupId,
+        },
+      }).catch(() => undefined);
+      return delay(undefined);
+    }
     if (SHARED_BACKEND_ENABLED) {
       if (!currentUserId) throw new Error("Please sign in first.");
       const g = await sharedSelectOne<Group>("groups", "*", `id=eq.${encodeURIComponent(groupId)}`);
@@ -958,7 +1032,22 @@ export const api = {
     });
   },
 
-  async acceptGroupInvite(notificationId: string): Promise<void> {
+  async acceptGroupInvite(notificationId: string): Promise<Group | undefined> {
+    if (!SHARED_BACKEND_ENABLED) {
+      const targetUser = getCurrentUser();
+      if (!targetUser) throw new Error("Please sign in first.");
+      const result = await acceptSharedInviteFn({
+        data: {
+          notificationId,
+          user: {
+            id: targetUser.id,
+            name: targetUser.name,
+            email: targetUser.email,
+          },
+        },
+      });
+      return delay(result.group as Group);
+    }
     if (SHARED_BACKEND_ENABLED) {
       const targetUser = getCurrentUser();
       if (!targetUser) throw new Error("Please sign in first.");
@@ -1034,7 +1123,7 @@ export const api = {
           },
         });
       }
-      return delay(undefined);
+      return delay(g);
     }
     if (USE_MOCK) {
       refreshNotifications();
@@ -1098,12 +1187,27 @@ export const api = {
           },
         });
       }
-      return delay(undefined);
+      return delay(g);
     }
     await http(`/api/notifications/${notificationId}/accept`, { method: "POST" });
   },
 
   async declineGroupInvite(notificationId: string): Promise<void> {
+    if (!SHARED_BACKEND_ENABLED) {
+      const targetUser = getCurrentUser();
+      if (!targetUser) throw new Error("Please sign in first.");
+      await declineSharedInviteFn({
+        data: {
+          notificationId,
+          user: {
+            id: targetUser.id,
+            name: targetUser.name,
+            email: targetUser.email,
+          },
+        },
+      });
+      return delay(undefined);
+    }
     if (SHARED_BACKEND_ENABLED) {
       const targetUser = getCurrentUser();
       if (!targetUser) throw new Error("Please sign in first.");
@@ -1225,6 +1329,11 @@ export const api = {
   },
 
   async getGroup(id: string): Promise<Group> {
+    if (!SHARED_BACKEND_ENABLED) {
+      const g = await getSharedGroupFn({ data: { groupId: id } });
+      if (!g) throw new Error("Group not found");
+      return delay(g as Group);
+    }
     if (USE_MOCK) {
       const g = refreshGroups().find((x) => x.id === id);
       if (!g) throw new Error("Group not found");
@@ -1245,6 +1354,16 @@ export const api = {
   },
 
   async myGroups(): Promise<Group[]> {
+    if (!SHARED_BACKEND_ENABLED) {
+      const user = getCurrentUser();
+      const groups = await getSharedMyGroupsFn({
+        data: {
+          userId: user?.id,
+          email: user?.email,
+        },
+      });
+      return delay(groups as Group[]);
+    }
     if (USE_MOCK) {
       refreshGroups();
       const ids = memberships.filter((m) => m.user_id === currentUserId).map((m) => m.group_id);
@@ -1255,6 +1374,26 @@ export const api = {
 
   // ---------- MEMBERS ----------
   async getMembers(groupId: string): Promise<MemberWithUser[]> {
+    if (!SHARED_BACKEND_ENABLED) {
+      const members = await getSharedMembersFn({ data: { groupId } });
+      return delay(
+        members.map((entry) => ({
+          membership: {
+            user_id: entry.user_id,
+            group_id: entry.group_id,
+            role: entry.role,
+            joined_at: entry.joined_at,
+          },
+          user: {
+            id: entry.user_id,
+            name: entry.user_name,
+            email: entry.user_email,
+          },
+          contributed_this_month: 0,
+          contributed_this_year: 0,
+        })),
+      );
+    }
     if (USE_MOCK) {
       refreshUsers();
       const month = new Date().getMonth();
@@ -1461,6 +1600,17 @@ export const api = {
 
   // ---------- NOTIFICATIONS ----------
   async getNotifications(options?: { unreadOnly?: boolean }): Promise<Notification[]> {
+    if (!SHARED_BACKEND_ENABLED) {
+      const user = getCurrentUser();
+      const visible = await getSharedNotificationsFn({
+        data: {
+          userId: user?.id,
+          email: user?.email,
+          unreadOnly: options?.unreadOnly,
+        },
+      });
+      return delay(visible as Notification[]);
+    }
     if (USE_MOCK) {
       syncPendingInviteNotifications();
       const visible = refreshNotifications()
@@ -1478,6 +1628,20 @@ export const api = {
   },
 
   async markNotificationRead(notificationId: string): Promise<void> {
+    if (!SHARED_BACKEND_ENABLED) {
+      const user = getCurrentUser();
+      await markSharedNotificationReadFn({
+        data: {
+          notificationId,
+          user: {
+            id: user?.id ?? "",
+            name: user?.name ?? "",
+            email: user?.email ?? "",
+          },
+        },
+      });
+      return delay(undefined);
+    }
     if (USE_MOCK) {
       const predicate = getNotificationVisibilityPredicate();
       notifications = notifications.map((n) => (n.id === notificationId && predicate(n) ? { ...n, read: true, is_read: true } : n));
@@ -1489,6 +1653,17 @@ export const api = {
   },
 
   async markAllNotificationsRead(): Promise<void> {
+    if (!SHARED_BACKEND_ENABLED) {
+      const user = getCurrentUser();
+      await markAllSharedNotificationsReadFn({
+        data: {
+          id: user?.id ?? "",
+          name: user?.name ?? "",
+          email: user?.email ?? "",
+        },
+      });
+      return delay(undefined);
+    }
     if (USE_MOCK) {
       const predicate = getNotificationVisibilityPredicate();
       notifications = notifications.map((n) =>
@@ -1502,6 +1677,10 @@ export const api = {
   },
 
   async deleteGroupArtifacts(groupId: string): Promise<void> {
+    if (!SHARED_BACKEND_ENABLED) {
+      await deleteSharedGroupFn({ data: { groupId } });
+      return delay(undefined);
+    }
     if (USE_MOCK) {
       invitations = invitations.filter((invite) => invite.group_id !== groupId);
       notifications = notifications.filter((notification) => {

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useSession } from "@/lib/session";
+import { api } from "@/services/api";
 import { useGroupStore } from "@/store/useGroupStore";
 
 const palette = ["#1A6B5A", "#534AB7", "#BA7517", "#E24B4A", "#185FA5", "#888780"];
@@ -28,7 +29,7 @@ function addDays(date: Date, days: number) {
 export function CreateGroupPage() {
   const navigate = useNavigate();
   const { user } = useSession();
-  const createGroup = useGroupStore((state) => state.createGroup);
+  const upsertSharedGroup = useGroupStore((state) => state.upsertSharedGroup);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const initializedNameRef = useRef(false);
   const today = new Date();
@@ -62,16 +63,19 @@ export function CreateGroupPage() {
       toast.error("Target date must be within today and the next 30 days.");
       return;
     }
-    const group = createGroup({
-      name: name.trim() || (user?.name ? `${user.name}'s Group` : "My Group"),
-      avatarColor,
-      avatarImage,
-      targetBudget: parsedBudget,
-      targetDate,
-      memberEmails: [],
-      leader: user ?? undefined,
+    api.createGroup(name.trim() || (user?.name ? `${user.name}'s Group` : "My Group"), parsedBudget, {
+      targetDayOfMonth: undefined,
+    }).then((remote) => {
+      const group = upsertSharedGroup({
+        ...remote,
+        avatarColor,
+        avatarImage,
+        targetDate,
+      });
+      navigate({ to: `/groups/${group.id}` });
+    }).catch((error) => {
+      toast.error(error?.message ?? "Could not create group");
     });
-    navigate({ to: `/groups/${group.id}` });
   };
 
   const handleAvatarFile = (file: File | null) => {

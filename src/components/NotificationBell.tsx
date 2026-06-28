@@ -13,7 +13,8 @@ export function NotificationBell() {
   const { data: notifications = [] } = useQuery({
     queryKey: ["notifications"],
     queryFn: () => api.getNotifications(),
-    refetchInterval: 30000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
   });
 
   useEffect(() => {

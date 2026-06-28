@@ -37,6 +37,7 @@ export function useNotificationStream() {
     window.addEventListener(NOTIFICATION_EVENT, handleEvent as EventListener);
     window.addEventListener("storage", handleStorage);
     window.addEventListener("focus", refresh);
+    const intervalId = window.setInterval(refresh, 5000);
 
     const streamUrl = getNotificationStreamUrl();
     let source: EventSource | null = null;
@@ -65,6 +66,7 @@ export function useNotificationStream() {
       window.removeEventListener(NOTIFICATION_EVENT, handleEvent as EventListener);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("focus", refresh);
+      window.clearInterval(intervalId);
       source?.close();
       if (retryRef.current) window.clearTimeout(retryRef.current);
     };

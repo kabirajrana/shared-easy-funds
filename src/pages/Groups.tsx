@@ -17,6 +17,7 @@ export function GroupsPage() {
   const groups = useGroupStore((state) => state.groups);
   const joinGroup = useGroupStore((state) => state.joinGroup);
   const hydrateWorkspace = useGroupStore((state) => state.hydrateWorkspace);
+  const upsertSharedGroup = useGroupStore((state) => state.upsertSharedGroup);
   const deleteGroup = useGroupStore((state) => state.deleteGroup);
   const deleteGroupExpenses = useExpenseStore((state) => state.deleteGroupExpenses);
   const { user, setGroup } = useSession();
@@ -52,8 +53,11 @@ export function GroupsPage() {
 
   const handleJoin = async () => {
     try {
-      await api.joinGroup(inviteCode);
-      const group = joinGroup(inviteCode);
+      const remote = await api.joinGroup(inviteCode);
+      const group = upsertSharedGroup({
+        ...remote,
+      });
+      joinGroup(remote.invite_code);
       hydrateWorkspace();
       if (!group) {
         toast.error("Invite code not found.");

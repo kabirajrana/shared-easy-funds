@@ -28,9 +28,9 @@ function Onboarding() {
   const [emails, setEmails] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
-  const createGroup = useGroupStore((state) => state.createGroup);
   const joinGroup = useGroupStore((state) => state.joinGroup);
   const hydrateWorkspace = useGroupStore((state) => state.hydrateWorkspace);
+  const upsertSharedGroup = useGroupStore((state) => state.upsertSharedGroup);
   const updateBudget = useUserStore((state) => state.updateBudget);
 
   if (!user) return <Navigate to="/auth" replace />;
@@ -60,32 +60,35 @@ function Onboarding() {
     setBusy(true);
     try {
       if (mode === "solo") {
-        const g = createGroup({
-          name: name.trim() || `${user.name} Fund`,
-          avatarColor: "#1A6B5A",
-          targetBudget: target,
+        const remote = await api.createGroup(name.trim() || `${user.name} Fund`, target, {
+          solo: true,
           targetDayOfMonth,
-          memberEmails: [],
-          leader: user,
+        });
+        const g = upsertSharedGroup({
+          ...remote,
+          avatarColor: "#1A6B5A",
+          targetDate: undefined,
+          avatarImage: undefined,
         });
         updateBudget(target);
         setGroup(g);
         toast.success("Solo fund created");
         navigate({ to: "/" });
       } else if (mode === "create") {
-        const g = createGroup({
-          name: name.trim() || `${user.name}'s Group`,
-          avatarColor: "#1A6B5A",
-          targetBudget: target,
+        const remote = await api.createGroup(name.trim() || `${user.name}'s Group`, target, {
           targetDayOfMonth,
-          memberEmails: [],
-          leader: user,
+        });
+        const g = upsertSharedGroup({
+          ...remote,
+          avatarColor: "#1A6B5A",
+          targetDate: undefined,
+          avatarImage: undefined,
         });
         updateBudget(target);
         setGroup(g);
         const registered = api.allUsers();
         const inviteResults = await Promise.allSettled(
-          emails.map((email) => api.sendGroupInvite(g.id, email.trim().toLowerCase())),
+          emails.map((email) => api.sendGroupInvite(remote.id, email.trim().toLowerCase())),
         );
         const missing = emails.filter((email) => !registered.some((u) => u.email.toLowerCase() === email));
         const sent = inviteResults.filter((result) => result.status === "fulfilled").length;
@@ -104,10 +107,15 @@ function Onboarding() {
         }
         navigate({ to: "/" });
       } else {
-        await api.joinGroup(code);
-        const g = joinGroup(code);
+        const remote = await api.joinGroup(code);
+        const g = upsertSharedGroup({
+          ...remote,
+          targetDate: undefined,
+          avatarImage: undefined,
+        });
+        const local = joinGroup(remote.invite_code);
         hydrateWorkspace();
-        if (!g) {
+        if (!local) {
           toast.error("Invalid invite code. Ask the leader to share it again.");
           return;
         }

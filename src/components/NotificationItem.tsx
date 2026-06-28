@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Bell, CheckCircle2, CircleDashed, Inbox, Users, XCircle } from "lucide-react";
 import { api, type Notification } from "@/services/api";
 import { cn } from "@/lib/utils";
+import { useGroupStore } from "@/store/useGroupStore";
 
 const ICONS = {
   group_invite: Users,
@@ -23,6 +24,7 @@ interface Props {
 export function NotificationItem({ notification, compact }: Props) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const upsertSharedGroup = useGroupStore((state) => state.upsertSharedGroup);
   const isRead = notification.read || notification.is_read;
   const isInvite = notification.type === "group_invite" && notification.meta?.status === "pending";
   const Icon = ICONS[notification.type as keyof typeof ICONS] ?? Bell;
@@ -34,10 +36,13 @@ export function NotificationItem({ notification, compact }: Props) {
 
   const acceptInvite = useMutation({
     mutationFn: () => api.acceptGroupInvite(notification.id),
-    onSuccess: async () => {
+    onSuccess: async (group) => {
+      if (group) {
+        upsertSharedGroup(group);
+      }
       await queryClient.invalidateQueries({ queryKey: ["notifications"] });
       await queryClient.invalidateQueries({ queryKey: ["groups"] });
-      const groupId = notification.data?.groupId ?? notification.meta?.group_id;
+      const groupId = group?.id ?? notification.data?.groupId ?? notification.meta?.group_id;
       if (groupId) {
         navigate({ to: `/groups/${groupId}` });
       }
